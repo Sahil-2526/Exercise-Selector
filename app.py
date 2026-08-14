@@ -1,9 +1,11 @@
 import streamlit as st
 import pandas as pd
 import os
+import difflib  # Built-in library for handling typos and fuzzy string matching
 from dotenv import load_dotenv
 from huggingface_hub import InferenceClient
 
+# Load local .env file if it exists (for VS Code development)
 load_dotenv()
 
 # --- API INITIALIZATION ---
@@ -36,7 +38,7 @@ if 'progress_df' not in st.session_state:
 st.title("Dynamic Workout Generator")
 
 # --- MAIN LAYOUT TABS ---
-tab1, tab2, tab3 = st.tabs(["Manage Arsenal", "Get Workout", "Progress"])
+tab1, tab2, tab3 = st.tabs(["Manage Arsenal", "Workout generator", "Progress Tracker"])
 
 # TAB 1: THE EXERCISE ARSENAL
 with tab1:
@@ -47,19 +49,18 @@ with tab1:
         st.session_state.arsenal_df, 
         num_rows="dynamic", 
         use_container_width=True,
-        key="arsenal_editor",
-        disabled = True
+        key="arsenal_editor"
     )
     
     st.divider()
     
-    with st.expander("Add New Exercise to Arsenal"):
+    with st.expander("➕ Add New Exercise to Arsenal"):
         with st.form("add_exercise_form"):
             col1, col2 = st.columns(2)
             
             with col1:
                 ex_name = st.text_input("Exercise Name")
-                ex_muscle = st.selectbox("Muscle Group/Day", ["Chest", "Back", "Legs", "Shoulders", "Biceps", "Core", "Full Body"])
+                ex_muscle = st.selectbox("Muscle Group/Day", ["Chest", "Back", "Legs", "Shoulders", "Core", "Full Body"])
             
             with col2:
                 ex_equip = st.selectbox("Equipment Needed", ["None (Bodyweight)", "Dumbbells", "Barbell", "Cables", "Court/Track"])
@@ -78,7 +79,7 @@ with tab1:
                 st.success(f"Successfully added '{ex_name}' to your arsenal!")
                 st.rerun()
 
-# TAB 2: EXERCISE SELECTOR AND RECOMMENDATION
+# TAB 2: HUGGING FACE AI GENERATOR
 with tab2:
     st.subheader("Generate Custom Workout")
     st.markdown("The AI will automatically evaluate your logged progress records from Tab 3 to prescribe custom sets and intensity.")
@@ -90,7 +91,7 @@ with tab2:
         with col_b:
             has_gym = st.radio("Gym Access Today?", ["Yes", "No (Bodyweight only)"])
             
-        generate_btn = st.form_submit_button("⚡ Generate Routine based on Progress History")
+        generate_btn = st.form_submit_button("Generate Routine based on Progress History")
 
     if generate_btn:
         if not client:
@@ -150,7 +151,7 @@ with tab2:
 # TAB 3: PROGRESS TRACKER
 with tab3:
     st.subheader("Your Progress Log")
-    st.markdown("Log your performance in plain text (e.g., 'I can do 40 pushups' or 'hit 100kg deadlift'). AI will extract and log it.")
+    st.markdown("Log your performance in plain text (e.g., 'I can do 40 pushups' or 'hit 100kg deadlift'). Existing exercises will update automatically, even if you make a typo.")
     
     st.session_state.progress_df = st.data_editor(
         st.session_state.progress_df,
@@ -163,7 +164,7 @@ with tab3:
     
     with st.form("progress_extraction_form"):
         user_log_input = st.text_area("Log update (Natural Language)", placeholder="e.g., I did 40 pushups today and managed a 100kg deadlift.")
-        extract_btn = st.form_submit_button("Extract & Add to Progress Table")
+        extract_btn = st.form_submit_button("Extract & Update Progress Table")
         
         if extract_btn:
             if not client:
@@ -171,13 +172,15 @@ with tab3:
             elif not user_log_input:
                 st.warning("Please enter your performance log.")
             else:
-                with st.spinner("Extracting metrics with AI..."):
+                with st.spinner("Extracting and syncing metrics with AI..."):
                     extraction_messages = [
                         {
                             "role": "system",
                             "content": (
                                 "You are a data extraction assistant. Extract exercise names and their numeric values/counts/weights "
-                                "from the user input. Return ONLY rows in a comma-separated format: "
+                                "from the user input. "
+                                "CRITICAL: Correct any spelling mistakes in the exercise names (e.g., fix 'puhsups' to 'Pushups', 'deadlist' to 'Deadlift'). "
+                                "Return ONLY rows in a comma-separated format: "
                                 "Exercise Name, Value/Record, Short Note. Do not include markdown code blocks or conversational filler."
                             )
                         },
@@ -199,23 +202,49 @@ with tab3:
                         raw_output = raw_output.replace("```", "").replace("csv", "").strip()
                         
                         lines = raw_output.split('\n')
-                        new_rows = []
+                        updated_count = 0
+                        added_count = 0
+                        
+                        existing_exercises = st.session_state.progress_df['Exercise/Metric'].astype(str).tolist()
+                        
                         for line in lines:
                             parts = [p.strip() for p in line.split(',')]
                             if len(parts) >= 2:
-                                new_rows.append({
-                                    "Exercise/Metric": parts[0],
-                                    "Value/Record": parts[1],
-                                    "Notes": parts[2] if len(parts) > 2 else user_log_input
-                                })
+                                ex_name = parts[0]
+                                ex_val = parts[1]
+                                ex_note = parts[2] if len(parts) > 2 else user_log_input
+                                
+                                close_matches = difflib.get_close_matches(
+                                    ex_name.lower(), 
+                                    [e.lower() for e in existing_exercises], 
+                                    n=1, 
+                                    cutoff=0.75
+                                )
+                                
+                                if close_matches:
+                                    matched_ex = close_matches[0]
+                                    match_idx = st.session_state.progress_df[
+                                        st.session_state.progress_df['Exercise/Metric'].str.lower() == matched_ex
+                                    ].index
+                                    
+                                    idx = match_idx[0]
+                                    st.session_state.progress_df.at[idx, 'Value/Record'] = ex_val
+                                    st.session_state.progress_df.at[idx, 'Notes'] = ex_note
+                                    updated_count += 1
+                                else:
+                                    new_row = pd.DataFrame([{
+                                        "Exercise/Metric": ex_name,
+                                        "Value/Record": ex_val,
+                                        "Notes": ex_note
+                                    }])
+                                    st.session_state.progress_df = pd.concat([st.session_state.progress_df, new_row], ignore_index=True)
+                                    added_count += 1
                         
-                        if new_rows:
-                            new_df = pd.DataFrame(new_rows)
-                            st.session_state.progress_df = pd.concat([st.session_state.progress_df, new_df], ignore_index=True)
-                            st.success("Progress extracted and logged successfully!")
+                        if updated_count > 0 or added_count > 0:
+                            st.success(f"Progress updated successfully! ({added_count} added, {updated_count} updated)")
                             st.rerun()
                         else:
-                            st.info("AI processed the text, but couldn't parse structured rows automatically. You can add them manually above.")
+                            st.info("AI processed the text, but couldn't parse structured rows automatically. You can add or update them manually above.")
                             
                     except Exception as e:
                         st.error(f"Extraction Error: {e}")
