@@ -66,20 +66,35 @@ with tab1:
                 ex_equip = st.selectbox("Equipment Needed", ["None (Bodyweight)", "Dumbbells", "Barbell", "Cables", "Court/Track"])
                 ex_diff = st.selectbox("Difficulty", ["Beginner", "Intermediate", "Advanced"])
             
-            submit_btn = st.form_submit_button("Add Exercise")
+            submit_btn = st.form_submit_button("Add / Update Exercise")
             
             if submit_btn and ex_name:
-                new_row = pd.DataFrame({
-                    "Exercise Name": [ex_name], 
-                    "Muscle Group/Day": [ex_muscle], 
-                    "Equipment Needed": [ex_equip], 
-                    "Difficulty": [ex_diff]
-                })
-                st.session_state.arsenal_df = pd.concat([st.session_state.arsenal_df, new_row], ignore_index=True)
-                st.success(f"Successfully added '{ex_name}' to your arsenal!")
+                # Create a mask to find if the exact exercise (Name, Muscle, Equipment) already exists
+                mask = (
+                    (st.session_state.arsenal_df["Exercise Name"].str.lower() == ex_name.lower()) &
+                    (st.session_state.arsenal_df["Muscle Group/Day"] == ex_muscle) &
+                    (st.session_state.arsenal_df["Equipment Needed"] == ex_equip)
+                )
+                
+                if mask.any():
+                    # Exercise exists, update ONLY the difficulty
+                    idx = st.session_state.arsenal_df[mask].index[0]
+                    st.session_state.arsenal_df.at[idx, "Difficulty"] = ex_diff
+                    st.success(f"Updated difficulty for existing exercise '{ex_name}' to {ex_diff}!")
+                else:
+                    # New exercise, append to the DataFrame
+                    new_row = pd.DataFrame({
+                        "Exercise Name": [ex_name], 
+                        "Muscle Group/Day": [ex_muscle], 
+                        "Equipment Needed": [ex_equip], 
+                        "Difficulty": [ex_diff]
+                    })
+                    st.session_state.arsenal_df = pd.concat([st.session_state.arsenal_df, new_row], ignore_index=True)
+                    st.success(f"Successfully added new exercise '{ex_name}' to your arsenal!")
+                
                 st.rerun()
 
-# TAB 2: HUGGING FACE AI GENERATOR
+# TAB 2: WORKOUT GENERATOR
 with tab2:
     st.subheader("Generate Custom Workout")
     st.markdown("The AI will automatically evaluate your logged progress records from Tab 3 to prescribe custom sets and intensity.")
@@ -91,7 +106,7 @@ with tab2:
         with col_b:
             has_gym = st.radio("Gym Access Today?", ["Yes", "No (Bodyweight only)"])
             
-        generate_btn = st.form_submit_button("Generate Routine based on Progress History")
+        generate_btn = st.form_submit_button("⚡ Generate Routine based on Progress History")
 
     if generate_btn:
         if not client:
@@ -110,7 +125,8 @@ with tab2:
                             "You are an expert fitness coach and bio-mechanics specialist. "
                             "Analyze the user's stored progress history data table to evaluate their strength levels, "
                             "and build a workout strictly utilizing exercises from their provided arsenal. "
-                            "Determine the exact number of sets, reps, and intensity for each exercise based on their recorded progress metrics."
+                            "Determine the exact number of sets, reps, and intensity for each exercise based on their recorded progress metrics. "
+                            "CRITICAL: Never output duplicate exercises in the routine."
                         )
                     },
                     {
@@ -127,9 +143,9 @@ with tab2:
                         
                         Instructions:
                         1. Review the user's progress records to deduce their baseline strength and max capabilities.
-                        2. Select 3-4 exercises from the Arsenal matching the target focus.
+                        2. Select 3-4 UNIQUE exercises from the Arsenal matching the target focus. Never list the same exercise twice in the routine.
                         3. Prescribe exact sets, reps/hold-times, and intensity tailored specifically to their stored progress values.
-                        4. Provide 1 recommended addition (not in arsenal) with brief benefits.
+                        4. Provide 1 recommended addition (this must be an exercise strictly NOT currently in the Arsenal CSV) with brief benefits.
                         """
                     }
                 ]
