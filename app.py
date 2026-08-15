@@ -3,6 +3,7 @@ import pandas as pd
 import os
 import json
 import difflib 
+import calendar
 from datetime import datetime
 from dotenv import load_dotenv
 from huggingface_hub import InferenceClient
@@ -21,7 +22,6 @@ else:
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
     page_title="Workout Engine",
-    page_icon="⚡",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
@@ -37,16 +37,18 @@ if 'progress_df' not in st.session_state:
         columns=["Date", "Exercise/Metric", "Weight", "Reps", "Notes"]
     )
 
-st.title("⚡ Dynamic Workout Generator")
+if 'user_goals' not in st.session_state:
+    st.session_state.user_goals = [] 
+
+st.title("Dynamic Workout Generator")
 
 # --- MAIN LAYOUT TABS ---
-tab1, tab2 = st.tabs(["Progress & Arsenal", "Workout generator"])
+tab1, tab2, tab3 = st.tabs(["Progress & Arsenal", "AI Generator", "Streaks & Goals"])
 
 # ==========================================
 # TAB 1: PROGRESS TRACKER & ARSENAL
 # ==========================================
 with tab1:
-    # --- PART A: PROGRESS TRACKER ---
     st.subheader("Your Progress Log")
     st.markdown("Log your performance in plain text (e.g., 'I did 40 pushups' or 'hit a 100kg deadlift for 5 reps'). Exercises will update here AND auto-add to your Arsenal if missing.")
     
@@ -67,7 +69,7 @@ with tab1:
             elif not user_log_input:
                 st.warning("Please enter your performance log.")
             else:
-                with st.spinner("Extracting metrics, analyzing difficulty, and generating hype..."):
+                with st.spinner("Extracting metrics, analyzing difficulty, and generating motivation..."):
                     
                     extraction_messages = [
                         {
@@ -192,7 +194,6 @@ with tab1:
                         st.error(f"Extraction Error: {e}")
 
     st.divider()
-    st.write("") # Spacer
 
     # --- PART B: THE EXERCISE ARSENAL ---
     st.subheader("Your Exercise Library")
@@ -205,7 +206,7 @@ with tab1:
         key="arsenal_editor"
     )
     
-    with st.expander("➕ Manually Add New Exercise to Arsenal"):
+    with st.expander("Manually Add New Exercise to Arsenal"):
         with st.form("add_exercise_form"):
             col1, col2 = st.columns(2)
             
@@ -257,7 +258,7 @@ with tab2:
         with col_b:
             has_gym = st.radio("Gym Access Today?", ["Yes", "No (Bodyweight only)"])
             
-        generate_btn = st.form_submit_button("⚡ Generate Routine based on Progress History")
+        generate_btn = st.form_submit_button("Generate Routine based on Progress History")
 
     if generate_btn:
         if not client:
@@ -314,3 +315,78 @@ with tab2:
                     
                 except Exception as e:
                     st.error(f"API Error: {e}")
+
+# ==========================================
+# TAB 3: STREAKS & GOALS
+# ==========================================
+with tab3:
+    col_streak, col_goals = st.columns([3, 2], gap="large")
+    
+    # --- CALENDAR STREAK ---
+    with col_streak:
+        st.subheader("Monthly Consistency")
+        
+        today = datetime.now()
+        cal = calendar.monthcalendar(today.year, today.month)
+        month_name = calendar.month_name[today.month]
+        
+        st.markdown(f"#### {month_name} {today.year}")
+        
+        # Get all dates the user logged progress
+        if not st.session_state.progress_df.empty:
+            workout_dates = pd.to_datetime(st.session_state.progress_df["Date"]).dt.date.tolist()
+        else:
+            workout_dates = []
+
+        day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        
+        # Render Calendar Header
+        header_cols = st.columns(7)
+        for i, d_name in enumerate(day_names):
+            header_cols[i].markdown(f"<div style='text-align: center; font-weight: bold; color: #B5B0D4; margin-bottom: 10px;'>{d_name}</div>", unsafe_allow_html=True)
+            
+        # Render Calendar Days
+        for week in cal:
+            week_cols = st.columns(7)
+            for i, day in enumerate(week):
+                if day == 0:
+                    week_cols[i].write("")
+                else:
+                    current_date = datetime(today.year, today.month, day).date()
+                    
+                    if current_date in workout_dates:
+                        # Worked out this day
+                        week_cols[i].markdown(f"<div style='text-align: center; background-color: #2e7d32; border-radius: 6px; padding: 12px; margin-bottom: 5px;'><b>{day}</b><br>Done</div>", unsafe_allow_html=True)
+                    elif current_date == today.date():
+                        # Today (no workout yet)
+                        week_cols[i].markdown(f"<div style='text-align: center; background-color: #1976d2; border-radius: 6px; padding: 12px; margin-bottom: 5px;'><b>{day}</b><br>Today</div>", unsafe_allow_html=True)
+                    else:
+                        # Past or Future days without workouts
+                        week_cols[i].markdown(f"<div style='text-align: center; background-color: #1E1E2A; border-radius: 6px; padding: 12px; margin-bottom: 5px; color: #888;'>{day}</div>", unsafe_allow_html=True)
+
+    # --- GOALS MANAGEMENT ---
+    with col_goals:
+        st.subheader("Active Goals")
+        
+        # Add new goal form
+        with st.form("add_goal_form"):
+            new_goal = st.text_input("Define a new goal", placeholder="e.g., Push to Handstand hold for 10s or 50 straight pushups")
+            if st.form_submit_button("Add Target"):
+                if new_goal:
+                    st.session_state.user_goals.append(new_goal)
+                    st.rerun()
+                    
+        st.divider()
+        
+        # Display goals with delete buttons
+        if not st.session_state.user_goals:
+            st.info("No active goals. Set a target above to get started.")
+        else:
+            for i, goal in enumerate(st.session_state.user_goals):
+                g_col1, g_col2 = st.columns([4, 1])
+                g_col1.markdown(f"**{i+1}.** {goal}")
+                
+                # Delete Button
+                if g_col2.button("Delete", key=f"del_goal_{i}", help="Delete Goal"):
+                    st.session_state.user_goals.pop(i)
+                    st.rerun()
