@@ -4,11 +4,11 @@ import os
 import json
 import difflib 
 import calendar
-from datetime import datetime
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from huggingface_hub import InferenceClient
 
-# Load local .env file if it exists (for VS Code development)
+# Load local .env file if it exists
 load_dotenv()
 
 # --- API INITIALIZATION ---
@@ -19,12 +19,75 @@ else:
     st.warning("HF_TOKEN not found in environment variables or .env file.")
     client = None
 
-# --- PAGE CONFIGURATION ---
+# --- PAGE CONFIGURATION & CUSTOM CSS ---
 st.set_page_config(
     page_title="Workout Engine",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
+
+# Custom Theme: Shadow & Silk (Navy Slate, Lavender, Mid-Dark Panels)
+st.markdown("""
+    <style>
+        .stApp {
+            background-color: #1a1a24;
+            color: #e0e0eb;
+        }
+        header {
+            background-color: transparent !important;
+        }
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 24px;
+        }
+        .stTabs [data-baseweb="tab"] {
+            color: #8c8c9e;
+            height: 50px;
+            white-space: pre-wrap;
+            background-color: transparent;
+            border-radius: 4px 4px 0px 0px;
+            gap: 1px;
+            padding-top: 10px;
+            padding-bottom: 10px;
+        }
+        .stTabs [aria-selected="true"] {
+            color: #b5b0d4 !important;
+            border-bottom: 2px solid #b5b0d4 !important;
+        }
+        .stButton>button {
+            background-color: #2a2a3b;
+            color: #b5b0d4;
+            border: 1px solid #4d4d6b;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+        .stButton>button:hover {
+            background-color: #b5b0d4;
+            color: #1a1a24;
+            border: 1px solid #b5b0d4;
+        }
+        .stTextInput>div>div>input, .stTextArea>div>div>textarea {
+            background-color: #2a2a3b !important;
+            color: #ffffff !important;
+            border: 1px solid #4d4d6b !important;
+        }
+        .stSelectbox>div>div>div {
+            background-color: #2a2a3b !important;
+            color: #ffffff !important;
+        }
+        div[data-testid="stExpander"] {
+            background-color: #2a2a3b;
+            border: 1px solid #4d4d6b;
+            border-radius: 8px;
+        }
+        .motivational-quote {
+            font-style: italic;
+            color: #b5b0d4;
+            border-left: 3px solid #b5b0d4;
+            padding-left: 10px;
+            margin-bottom: 20px;
+        }
+    </style>
+""", unsafe_allow_html=True)
 
 # --- SESSION STATE INITIALIZATION ---
 if 'arsenal_df' not in st.session_state:
@@ -34,23 +97,30 @@ if 'arsenal_df' not in st.session_state:
 
 if 'progress_df' not in st.session_state:
     st.session_state.progress_df = pd.DataFrame(
-        columns=["Date", "Exercise/Metric", "Weight", "Reps"]
+        columns=["Date", "Exercise/Metric", "Weight", "Reps", "Notes"]
     )
 
 if 'user_goals' not in st.session_state:
     st.session_state.user_goals = [] 
 
+if 'generated_routine' not in st.session_state:
+    st.session_state.generated_routine = ""
+
+if 'active_checklist' not in st.session_state:
+    st.session_state.active_checklist = {}
+
 st.title("Dynamic Workout Generator")
+st.markdown("<div class='motivational-quote'>Surpass your limits. Master the fundamentals. Build the handstand, perfect the shot, trust the routine.</div>", unsafe_allow_html=True)
 
 # --- MAIN LAYOUT TABS ---
-tab1, tab2, tab3 = st.tabs(["Progress & Arsenal", "AI Generator", "Streaks & Goals"])
+tab1, tab2, tab3, tab4 = st.tabs(["Progress & Arsenal", "AI Generator", "Active Session", "Streaks & Goals"])
 
 # ==========================================
 # TAB 1: PROGRESS TRACKER & ARSENAL
 # ==========================================
 with tab1:
     st.subheader("Your Progress Log")
-    st.markdown("Log your performance in plain text (e.g., 'I did 40 pushups' or 'hit a 100kg deadlift for 5 reps'). Exercises will update here AND auto-add to your Arsenal if missing.")
+    st.markdown("Log your performance in plain text. Exercises will update here and auto-add to your Arsenal if missing.")
     
     st.session_state.progress_df = st.data_editor(
         st.session_state.progress_df,
@@ -60,7 +130,7 @@ with tab1:
     )
     
     with st.form("progress_extraction_form"):
-        user_log_input = st.text_area("Log update (Natural Language)", placeholder="e.g., I did 40 pushups today and managed a 100kg deadlift for 3 reps.")
+        user_log_input = st.text_area("Log update (Natural Language)", placeholder="I played basketball for 2 hours, practiced handstands, and did 40 pushups.")
         extract_btn = st.form_submit_button("Extract & Sync Tables")
         
         if extract_btn:
@@ -69,14 +139,14 @@ with tab1:
             elif not user_log_input:
                 st.warning("Please enter your performance log.")
             else:
-                with st.spinner("Extracting metrics and updating tables..."):
+                with st.spinner("Extracting metrics and analyzing data..."):
                     
                     extraction_messages = [
                         {
                             "role": "system",
                             "content": (
                                 "You are an expert fitness data analyst. Extract exercises and metrics from the user input. "
-                                "CRITICAL: Correct any spelling mistakes in the exercise names (e.g., fix 'puhsups' to 'Pushups'). "
+                                "CRITICAL: Correct any spelling mistakes in the exercise names. "
                                 "For every exercise, infer: "
                                 "1. Muscle Group (Choose ONE: Chest, Back, Legs, Shoulders, Core, Full Body) "
                                 "2. Equipment (Choose ONE: None (Bodyweight), Dumbbells, Barbell, Cables, Court/Track, Machine) "
@@ -85,7 +155,7 @@ with tab1:
                                 "CRITICAL METRIC RULES: "
                                 "- If the exercise is bodyweight (like pushups, pullups, planche, handstands), set 'weight' strictly to '-'. "
                                 "- If reps are not mentioned but weight is, set 'reps' to '-'. "
-                                "- If time/hold is mentioned instead of reps (e.g., '10 seconds'), place that in the 'reps' key (e.g., '10s'). "
+                                "- If time/hold is mentioned instead of reps, place that in the 'reps' key. "
                                 "Do not include any markdown formatting, backticks, or extra text."
                             )
                         },
@@ -118,12 +188,10 @@ with tab1:
                         
                         current_date = datetime.now().strftime("%Y-%m-%d")
                         
-                        # FORCE cast entire list to string to completely prevent the float error
                         existing_progress = [str(x) for x in st.session_state.progress_df['Exercise/Metric'].tolist()]
                         existing_arsenal = [str(x) for x in st.session_state.arsenal_df['Exercise Name'].tolist()]
                         
                         for item in extracted_data:
-                            # Force cast JSON values to string
                             ex_name = str(item.get("name", "Unknown Exercise"))
                             ex_weight = str(item.get("weight", "-"))
                             ex_reps = str(item.get("reps", "-"))
@@ -178,7 +246,7 @@ with tab1:
                                 arsenal_added_count += 1
                         
                         if updated_count > 0 or added_count > 0:
-                            st.success(f"Log Synced! ({added_count} progress added, {updated_count} updated. {arsenal_added_count} missing exercises auto-added to Arsenal.)")
+                            st.success(f"Log Synced! ({added_count} progress added, {updated_count} updated. {arsenal_added_count} exercises auto-added to Arsenal.)")
                             st.rerun()
                         else:
                             st.info("AI couldn't extract valid data. Please try again.")
@@ -192,7 +260,6 @@ with tab1:
 
     # --- PART B: THE EXERCISE ARSENAL ---
     st.subheader("Your Exercise Library")
-    st.markdown("Manually add exercises using the form below or edit them directly in the table.")
     
     st.session_state.arsenal_df = st.data_editor(
         st.session_state.arsenal_df, 
@@ -207,12 +274,12 @@ with tab1:
             
             with col1:
                 ex_name = st.text_input("Exercise Name")
-                
-            with col2:
                 ex_muscle = st.selectbox("Muscle Group/Day", ["Chest", "Back", "Legs", "Shoulders", "Core", "Full Body"])
+            
+            with col2:
                 ex_equip = st.selectbox("Equipment Needed", ["None (Bodyweight)", "Dumbbells", "Barbell", "Cables", "Court/Track"])
             
-            submit_btn = st.form_submit_button("Add Exercise")
+            submit_btn = st.form_submit_button("Add / Update Exercise")
             
             if submit_btn and ex_name:
                 mask = (
@@ -222,7 +289,7 @@ with tab1:
                 )
                 
                 if mask.any():
-                    st.success(f"Exercise '{ex_name}' already exists in your arsenal with these details.")
+                    st.success(f"Exercise '{ex_name}' already exists in your arsenal.")
                 else:
                     new_row = pd.DataFrame({
                         "Exercise Name": [ex_name], 
@@ -230,7 +297,7 @@ with tab1:
                         "Equipment Needed": [ex_equip]
                     })
                     st.session_state.arsenal_df = pd.concat([st.session_state.arsenal_df, new_row], ignore_index=True)
-                    st.success(f"Successfully added new exercise '{ex_name}' to your arsenal!")
+                    st.success(f"Successfully added '{ex_name}' to your arsenal!")
                 
                 st.rerun()
 
@@ -240,7 +307,7 @@ with tab1:
 # ==========================================
 with tab2:
     st.subheader("Generate Custom Workout")
-    st.markdown("The AI will automatically evaluate your logged progress records from Tab 1 to prescribe custom sets and intensity.")
+    st.markdown("The AI will evaluate your logged progress to prescribe custom sets and intensity.")
     
     with st.form("hf_generator_form"):
         col_a, col_b = st.columns(2)
@@ -249,13 +316,13 @@ with tab2:
         with col_b:
             has_gym = st.radio("Gym Access Today?", ["Yes", "No (Bodyweight only)"])
             
-        generate_btn = st.form_submit_button("Generate Routine based on Progress History")
+        generate_btn = st.form_submit_button("Generate Routine")
 
     if generate_btn:
         if not client:
             st.error("Cannot call Hugging Face API without a valid HF_TOKEN.")
         elif st.session_state.arsenal_df.empty:
-            st.warning("Your exercise arsenal is empty! Please add some exercises in the 'Progress & Arsenal' tab first.")
+            st.warning("Your exercise arsenal is empty. Add exercises in the Progress & Arsenal tab first.")
         else:
             with st.spinner("Analyzing progress history and generating routine..."):
                 arsenal_csv = st.session_state.arsenal_df.to_csv(index=False)
@@ -285,10 +352,9 @@ with tab2:
                         {arsenal_csv}
                         
                         Instructions:
-                        1. Review the user's progress records to deduce their baseline strength and max capabilities.
-                        2. Select 3-4 UNIQUE exercises from the Arsenal matching the target focus. Never list the same exercise twice in the routine.
-                        3. Prescribe exact sets, reps/hold-times, and intensity tailored specifically to their stored progress values.
-                        4. Provide 1 recommended addition (this must be an exercise strictly NOT currently in the Arsenal CSV) with brief benefits.
+                        1. Select 3-4 UNIQUE exercises from the Arsenal matching the target focus. Never list the same exercise twice.
+                        2. Prescribe exact sets, reps/hold-times, and intensity tailored specifically to their stored progress values.
+                        3. Provide 1 recommended addition (not currently in the Arsenal CSV) with brief benefits.
                         """
                     }
                 ]
@@ -301,42 +367,166 @@ with tab2:
                         temperature=0.7
                     )
                     
-                    st.success("Routine Generated based on your Stored Progress!")
-                    st.markdown(response.choices[0].message.content)
+                    st.session_state.generated_routine = response.choices[0].message.content
+                    st.success("Routine Generated! Navigate to the 'Active Session' tab to start tracking.")
                     
                 except Exception as e:
                     st.error(f"API Error: {e}")
+                    
+    if st.session_state.generated_routine:
+        st.markdown(st.session_state.generated_routine)
+
 
 # ==========================================
-# TAB 3: STREAKS & GOALS
+# TAB 3: ACTIVE SESSION
 # ==========================================
 with tab3:
+    st.subheader("Active Training Session")
+    
+    if not st.session_state.generated_routine:
+        st.info("No active routine. Use the AI Generator tab to create one.")
+    else:
+        col_routine, col_tracker = st.columns([1, 1], gap="large")
+        
+        with col_routine:
+            st.markdown("### Suggested Plan")
+            st.markdown(st.session_state.generated_routine)
+            
+        with col_tracker:
+            st.markdown("### Execution Checklist")
+            st.caption("Select the exercises you are performing today and check them off as you complete them.")
+            
+            selected_tasks = st.multiselect(
+                "Build today's checklist:", 
+                st.session_state.arsenal_df["Exercise Name"].tolist(),
+                placeholder="Choose exercises from Arsenal..."
+            )
+            
+            if selected_tasks:
+                st.divider()
+                all_completed = True
+                
+                for task in selected_tasks:
+                    if task not in st.session_state.active_checklist:
+                        st.session_state.active_checklist[task] = False
+                        
+                    is_checked = st.checkbox(task, value=st.session_state.active_checklist[task], key=f"chk_{task}")
+                    st.session_state.active_checklist[task] = is_checked
+                    
+                    if not is_checked:
+                        all_completed = False
+                        
+                if all_completed and len(selected_tasks) > 0:
+                    st.success("All tasks completed. Excellent work.")
+                    if st.button("Mark Workout as Done for Today"):
+                        # Record the completion in progress_df to trigger streak
+                        new_prog_row = pd.DataFrame([{
+                            "Date": datetime.now().strftime("%Y-%m-%d"),
+                            "Exercise/Metric": "Daily Workout Completed",
+                            "Weight": "-",
+                            "Reps": "1",
+                            "Notes": "Routine finished."
+                        }])
+                        st.session_state.progress_df = pd.concat([st.session_state.progress_df, new_prog_row], ignore_index=True)
+                        st.session_state.active_checklist = {}
+                        st.session_state.generated_routine = ""
+                        st.success("Progress saved. Your active streak has been updated.")
+                        st.rerun()
+
+
+# ==========================================
+# TAB 4: STREAKS & GOALS
+# ==========================================
+with tab4:
+    st.markdown("<div style='display: flex; justify-content: flex-end; margin-bottom: 20px;'>", unsafe_allow_html=True)
+    if st.button("Quick Log: Mark Today as Complete"):
+        new_prog_row = pd.DataFrame([{
+            "Date": datetime.now().strftime("%Y-%m-%d"),
+            "Exercise/Metric": "Daily Workout Completed",
+            "Weight": "-",
+            "Reps": "1",
+            "Notes": "Quick Log."
+        }])
+        st.session_state.progress_df = pd.concat([st.session_state.progress_df, new_prog_row], ignore_index=True)
+        st.success("Today marked as complete.")
+        st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
+
     col_streak, col_goals = st.columns([3, 2], gap="large")
     
     # --- CALENDAR STREAK ---
     with col_streak:
         st.subheader("Monthly Consistency")
         
+        # Streak Calculation Logic
+        if not st.session_state.progress_df.empty:
+            workout_dates = sorted(pd.to_datetime(st.session_state.progress_df["Date"]).dt.date.unique(), reverse=True)
+        else:
+            workout_dates = []
+
+        today_date = datetime.now().date()
+        yesterday_date = today_date - timedelta(days=1)
+        
+        current_streak = 0
+        if workout_dates:
+            if workout_dates[0] == today_date:
+                current_streak = 1
+                check_date = yesterday_date
+                idx = 1
+            elif workout_dates[0] == yesterday_date:
+                current_streak = 1
+                check_date = yesterday_date - timedelta(days=1)
+                idx = 1
+            else:
+                idx = 0
+                check_date = None
+            
+            if current_streak > 0:
+                while idx < len(workout_dates) and workout_dates[idx] == check_date:
+                    current_streak += 1
+                    check_date -= timedelta(days=1)
+                    idx += 1
+
+        # Render Active Fire Streak using SVG (No Emojis, Shadow Silk theme)
+        if current_streak >= 1:
+            streak_html = f"""
+            <div style="display: flex; align-items: center; gap: 10px; margin-top: 10px; margin-bottom: 5px;">
+                <svg viewBox="0 0 24 24" width="42" height="42" fill="#b5b0d4" style="filter: drop-shadow(0px 0px 8px #b5b0d4);">
+                    <path d="M12 2C12 2 7 7 7 13C7 15.76 9.24 18 12 18C14.76 18 17 15.76 17 13C17 7 12 2 12 2ZM12 16C10.9 16 10 15.1 10 14C10 12.9 12 10 12 10C12 10 14 11.9 14 14C14 15.1 13.1 16 12 16Z"/>
+                </svg>
+                <h2 style="color: #b5b0d4; text-shadow: 0 0 10px #b5b0d4, 0 0 20px #8c8c9e; font-weight: 900; margin: 0;">
+                    {current_streak} DAYS
+                </h2>
+            </div>
+            """
+        else:
+            streak_html = f"""
+            <div style="display: flex; align-items: center; gap: 10px; margin-top: 10px; margin-bottom: 5px;">
+                <svg viewBox="0 0 24 24" width="42" height="42" fill="#2a2a3b">
+                    <path d="M12 2C12 2 7 7 7 13C7 15.76 9.24 18 12 18C14.76 18 17 15.76 17 13C17 7 12 2 12 2ZM12 16C10.9 16 10 15.1 10 14C10 12.9 12 10 12 10C12 10 14 11.9 14 14C14 15.1 13.1 16 12 16Z"/>
+                </svg>
+                <h2 style="color: #4d4d6b; font-weight: 900; margin: 0;">
+                    {current_streak} DAYS
+                </h2>
+            </div>
+            """
+            
+        st.markdown(streak_html, unsafe_allow_html=True)
+        st.caption("Your streak stays active as long as you log a workout today or yesterday.")
+        st.write("")
+        
         today = datetime.now()
         cal = calendar.monthcalendar(today.year, today.month)
         month_name = calendar.month_name[today.month]
         
         st.markdown(f"#### {month_name} {today.year}")
-        
-        # Get all dates the user logged progress
-        if not st.session_state.progress_df.empty:
-            workout_dates = pd.to_datetime(st.session_state.progress_df["Date"]).dt.date.tolist()
-        else:
-            workout_dates = []
 
         day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
         
-        # Render Calendar Header
         header_cols = st.columns(7)
         for i, d_name in enumerate(day_names):
-            header_cols[i].markdown(f"<div style='text-align: center; font-weight: bold; color: #B5B0D4; margin-bottom: 10px;'>{d_name}</div>", unsafe_allow_html=True)
+            header_cols[i].markdown(f"<div style='text-align: center; font-weight: bold; color: #b5b0d4; margin-bottom: 10px;'>{d_name}</div>", unsafe_allow_html=True)
             
-        # Render Calendar Days
         for week in cal:
             week_cols = st.columns(7)
             for i, day in enumerate(week):
@@ -346,22 +536,18 @@ with tab3:
                     current_date = datetime(today.year, today.month, day).date()
                     
                     if current_date in workout_dates:
-                        # Worked out this day
-                        week_cols[i].markdown(f"<div style='text-align: center; background-color: #2e7d32; border-radius: 6px; padding: 12px; margin-bottom: 5px;'><b>{day}</b><br>Done</div>", unsafe_allow_html=True)
+                        week_cols[i].markdown(f"<div style='text-align: center; background-color: #2a2a3b; border: 1px solid #b5b0d4; color: #b5b0d4; border-radius: 6px; padding: 12px; margin-bottom: 5px;'><b>{day}</b><br>Done</div>", unsafe_allow_html=True)
                     elif current_date == today.date():
-                        # Today (no workout yet)
-                        week_cols[i].markdown(f"<div style='text-align: center; background-color: #1976d2; border-radius: 6px; padding: 12px; margin-bottom: 5px;'><b>{day}</b><br>Today</div>", unsafe_allow_html=True)
+                        week_cols[i].markdown(f"<div style='text-align: center; background-color: #b5b0d4; color: #1a1a24; border-radius: 6px; padding: 12px; margin-bottom: 5px;'><b>{day}</b><br>Today</div>", unsafe_allow_html=True)
                     else:
-                        # Past or Future days without workouts
-                        week_cols[i].markdown(f"<div style='text-align: center; background-color: #1E1E2A; border-radius: 6px; padding: 12px; margin-bottom: 5px; color: #888;'>{day}</div>", unsafe_allow_html=True)
+                        week_cols[i].markdown(f"<div style='text-align: center; background-color: #1a1a24; border: 1px solid #4d4d6b; border-radius: 6px; padding: 12px; margin-bottom: 5px; color: #8c8c9e;'>{day}</div>", unsafe_allow_html=True)
 
     # --- GOALS MANAGEMENT ---
     with col_goals:
         st.subheader("Active Goals")
         
-        # Add new goal form
         with st.form("add_goal_form"):
-            new_goal = st.text_input("Define a new goal", placeholder="e.g., Push to Handstand hold for 10s or 50 straight pushups")
+            new_goal = st.text_input("Define a new goal", placeholder="e.g., Target 50 pushups")
             if st.form_submit_button("Add Target"):
                 if new_goal:
                     st.session_state.user_goals.append(new_goal)
@@ -369,7 +555,6 @@ with tab3:
                     
         st.divider()
         
-        # Display goals with delete buttons
         if not st.session_state.user_goals:
             st.info("No active goals. Set a target above to get started.")
         else:
@@ -377,7 +562,6 @@ with tab3:
                 g_col1, g_col2 = st.columns([4, 1])
                 g_col1.markdown(f"**{i+1}.** {goal}")
                 
-                # Delete Button
-                if g_col2.button("Delete", key=f"del_goal_{i}", help="Delete Goal"):
+                if g_col2.button("Delete", key=f"del_goal_{i}"):
                     st.session_state.user_goals.pop(i)
                     st.rerun()
