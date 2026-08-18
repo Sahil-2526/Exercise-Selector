@@ -823,20 +823,3 @@ with tab4:
                     save_user_state()
                     st.rerun()
 
-import sqlite3
-
-conn = sqlite3.connect("expenses.db")
-cursor = conn.cursor()
-
-cursor.execute("""
-    SELECT name FROM sqlite_master
-    WHERE type='table' AND name NOT LIKE 'sqlite_%'
-""")
-
-tables = [row[0] for row in cursor.fetchall()]
-
-for table in tables:
-    cursor.execute(f'DELETE FROM "{table}"')
-
-conn.commit()
-conn.close()
