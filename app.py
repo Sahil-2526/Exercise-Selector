@@ -121,6 +121,20 @@ st.markdown("""
             margin-right: 5px;
             display: inline-block;
         }
+        .congrats-banner {
+            background-color: #2e7d32;
+            border: 1px solid #4caf50;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            text-align: center;
+            box-shadow: 0 0 15px #4caf50;
+            animation: glow 1.5s ease-in-out infinite alternate;
+        }
+        @keyframes glow {
+            from { box-shadow: 0 0 10px #4caf50; }
+            to { box-shadow: 0 0 20px #81c784, 0 0 30px #4caf50; }
+        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -155,6 +169,47 @@ if 'current_target_group' not in st.session_state:
 
 st.title("Dynamic Workout Generator")
 st.markdown("<div class='motivational-quote'>Surpass your limits. Master the fundamentals. Build the handstand, perfect the shot, trust the routine.</div>", unsafe_allow_html=True)
+
+# --- AUTOMATED GOAL EVALUATION ENGINE ---
+if st.session_state.user_goals and not st.session_state.progress_df.empty:
+    goals_to_remove = []
+    achieved_messages = []
+    
+    # Filter out legacy string goals to prevent crashes
+    st.session_state.user_goals = [g for g in st.session_state.user_goals if isinstance(g, dict)]
+    
+    for idx, goal in enumerate(st.session_state.user_goals):
+        ex_name = goal["exercise"]
+        metric = goal["metric"]
+        target = goal["target"]
+        
+        matches = st.session_state.progress_df[
+            st.session_state.progress_df["Exercise/Metric"].astype(str).str.lower() == ex_name.lower()
+        ]
+        
+        for _, row in matches.iterrows():
+            val_str = str(row[metric])
+            numbers = re.findall(r"[-+]?\d*\.\d+|\d+", val_str)
+            if numbers:
+                val = float(numbers[0])
+                if val >= target:
+                    achieved_messages.append(f"You crushed your goal of {target} {metric} on {ex_name.title()}!")
+                    if idx not in goals_to_remove:
+                        goals_to_remove.append(idx)
+    
+    if achieved_messages:
+        for msg in achieved_messages:
+            st.markdown(f"""
+            <div class="congrats-banner">
+                <h3 style="color: #ffffff; margin: 0; text-transform: uppercase; letter-spacing: 1px;">CONGRATULATIONS!</h3>
+                <p style="color: #e8f5e9; font-size: 1.1em; margin-top: 5px; margin-bottom: 0;">{msg}</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # Remove completed goals starting from the highest index
+        for idx in sorted(goals_to_remove, reverse=True):
+            st.session_state.user_goals.pop(idx)
+
 
 # --- MAIN LAYOUT TABS ---
 tab1, tab2, tab3, tab4 = st.tabs(["Progress & Arsenal", "AI Generator", "Active Session", "Streaks & Goals"])
@@ -312,12 +367,12 @@ with tab1:
 # ==========================================
 with tab2:
     st.subheader("Generate Custom Workout")
-    st.markdown("The AI will evaluate your logged progress to prescribe custom sets and intensity.")
+    st.markdown("The AI will evaluate your logged progress and natural language goals to prescribe a custom routine.")
     
     with st.form("hf_generator_form"):
         col_a, col_b = st.columns(2)
         with col_a:
-            target_group = st.text_input("Target Muscle / Focus", placeholder="e.g., Chest, Biceps, Lats, Quads")
+            target_group = st.text_input("What do you want to train today?", placeholder="e.g., Push day, basketball conditioning, upper body, handstand prep")
         with col_b:
             has_gym = st.radio("Gym Access Today?", ["Yes", "No (Bodyweight only)"])
             
@@ -327,95 +382,90 @@ with tab2:
         if not client:
             st.error("Cannot call Hugging Face API without a valid HF_TOKEN.")
         elif not target_group:
-            st.warning("Please specify a target muscle or focus.")
+            st.warning("Please specify a target focus.")
+        elif st.session_state.arsenal_df.empty:
+            st.warning("Your exercise arsenal is empty. Add exercises in the Progress & Arsenal tab first.")
         else:
-            # Enforce Strict Filtering: Send ONLY matching exercises to AI to prevent cross-contamination
-            valid_arsenal = st.session_state.arsenal_df[
-                st.session_state.arsenal_df["Muscle Group/Day"].astype(str).str.contains(target_group, case=False, na=False)
-            ]
-
-            if valid_arsenal.empty:
-                st.warning(f"No exercises found targeting '{target_group}' in your Arsenal. Please add some first.")
-            else:
-                st.session_state.current_target_group = target_group
+            st.session_state.current_target_group = target_group
+            
+            with st.spinner("Analyzing progress history and generating routine..."):
+                arsenal_csv = st.session_state.arsenal_df.to_csv(index=False)
+                progress_csv = st.session_state.progress_df.to_csv(index=False) if not st.session_state.progress_df.empty else "No progress logged yet."
                 
-                with st.spinner("Analyzing progress history and generating routine..."):
-                    arsenal_csv = valid_arsenal.to_csv(index=False)
-                    progress_csv = st.session_state.progress_df.to_csv(index=False) if not st.session_state.progress_df.empty else "No progress logged yet."
-                    
-                    messages = [
-                        {
-                            "role": "system",
-                            "content": (
-                                "You are an expert fitness coach and bio-mechanics specialist. "
-                                "Analyze the user's stored progress history and build a workout strictly utilizing exercises from their provided arsenal. "
-                                "Determine the exact number of sets, reps, and intensity. "
-                                "CRITICAL INSTRUCTION: You MUST output a valid JSON object. Follow this exact JSON schema strictly: "
-                                "{"
-                                "\"routine_text\": \"String detailing the motivation, sets, reps, and intensity recommendations.\", "
-                                "\"arsenal_exercises\": ["
-                                "   {\"name\": \"Exercise from Arsenal CSV\", \"specific_target\": \"Precise muscle part (e.g., Upper Chest, Rear Delts, Glutes)\"}"
-                                "], "
-                                "\"recommended_exercises\": ["
-                                "   {\"name\": \"Exact New Exercise Name 1\", \"muscle\": \"Precise Muscle Target\", \"equipment\": \"Equipment Needed\"},"
-                                "   {\"name\": \"Exact New Exercise Name 2\", \"muscle\": \"Precise Muscle Target\", \"equipment\": \"Equipment Needed\"},"
-                                "   {\"name\": \"Exact New Exercise Name 3\", \"muscle\": \"Precise Muscle Target\", \"equipment\": \"Equipment Needed\"},"
-                                "   {\"name\": \"Exact New Exercise Name 4\", \"muscle\": \"Precise Muscle Target\", \"equipment\": \"Equipment Needed\"},"
-                                "   {\"name\": \"Exact New Exercise Name 5\", \"muscle\": \"Precise Muscle Target\", \"equipment\": \"Equipment Needed\"}"
-                                "]"
-                                "}"
-                                "CRITICAL RULES: "
-                                "1. You MUST provide exactly 5 recommended exercises that target the chosen muscle but are NOT in the Arsenal CSV. "
-                                "2. For recommended_exercises 'name', provide ONLY the exact name of the exercise. Do NOT include weights, sets, reps, or descriptions in the name field."
-                            )
-                        },
-                        {
-                            "role": "user",
-                            "content": f"""
-                            Target Focus: {target_group}
-                            Gym Access Available: {has_gym}
-                            
-                            User Progress History Records:
-                            {progress_csv}
-                            
-                            Available Arsenal (Filtered for Focus):
-                            {arsenal_csv}
-                            """
-                        }
-                    ]
-                    
-                    try:
-                        response = client.chat.completions.create(
-                            model="meta-llama/Llama-3.1-8B-Instruct",
-                            messages=messages,
-                            max_tokens=1000,
-                            temperature=0.4
+                messages = [
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are an expert fitness coach and bio-mechanics specialist. "
+                            "Analyze the user's natural language Target Focus and build a workout utilizing appropriate exercises from their provided arsenal. "
+                            "CRITICAL INSTRUCTION: You MUST output a valid JSON object. Follow this exact JSON schema strictly: "
+                            "{"
+                            "\"routine_text\": \"String detailing the motivation, sets, reps, and intensity recommendations.\", "
+                            "\"arsenal_exercises\": ["
+                            "   {\"name\": \"Exercise from Arsenal CSV\", \"specific_target\": \"Precise muscle part (e.g., Upper Chest, Front Delts)\"}"
+                            "], "
+                            "\"recommended_exercises\": ["
+                            "   {\"name\": \"Exact New Exercise Name 1\", \"muscle\": \"Precise Muscle Target\", \"equipment\": \"Equipment Needed\"},"
+                            "   {\"name\": \"Exact New Exercise Name 2\", \"muscle\": \"Precise Muscle Target\", \"equipment\": \"Equipment Needed\"},"
+                            "   {\"name\": \"Exact New Exercise Name 3\", \"muscle\": \"Precise Muscle Target\", \"equipment\": \"Equipment Needed\"},"
+                            "   {\"name\": \"Exact New Exercise Name 4\", \"muscle\": \"Precise Muscle Target\", \"equipment\": \"Equipment Needed\"},"
+                            "   {\"name\": \"Exact New Exercise Name 5\", \"muscle\": \"Precise Muscle Target\", \"equipment\": \"Equipment Needed\"}"
+                            "]"
+                            "}"
+                            "CRITICAL RULES: "
+                            "1. Match the semantic meaning of the Target Focus. If they ask for 'Push day', select chest, shoulders, and triceps exercises. "
+                            "2. Select UP TO 4 exercises from the Arsenal. If there are only 1 or 2 matching exercises in the Arsenal, return ONLY those. Do NOT pad the list with unrelated exercises. "
+                            "3. You MUST provide exactly 5 recommended exercises that target the chosen focus but are NOT in the Arsenal CSV. "
+                            "4. For recommended_exercises 'name', provide ONLY the exact name of the exercise."
                         )
+                    },
+                    {
+                        "role": "user",
+                        "content": f"""
+                        Target Focus: {target_group}
+                        Gym Access Available: {has_gym}
                         
-                        raw_output = response.choices[0].message.content
-                        generated_data = parse_json_output(raw_output, is_array=False)
+                        User Progress History Records:
+                        {progress_csv}
                         
-                        if not generated_data:
-                            st.error("JSON Parsing Error: The AI did not return a strict format. Please try generating again.")
-                        else:
-                            st.session_state.generated_routine_text = generated_data.get("routine_text", "Workout routine generated.")
+                        Available Arsenal:
+                        {arsenal_csv}
+                        """
+                    }
+                ]
+                
+                try:
+                    response = client.chat.completions.create(
+                        model="meta-llama/Llama-3.1-8B-Instruct",
+                        messages=messages,
+                        max_tokens=1000,
+                        temperature=0.4
+                    )
+                    
+                    raw_output = response.choices[0].message.content
+                    generated_data = parse_json_output(raw_output, is_array=False)
+                    
+                    if not generated_data:
+                        st.error("JSON Parsing Error: The AI did not return a strict format. Please try generating again.")
+                    else:
+                        st.session_state.generated_routine_text = generated_data.get("routine_text", "Workout routine generated.")
+                        
+                        st.session_state.active_checklist = {}
+                        st.session_state.specific_targets = {}
+                        
+                        for ex_obj in generated_data.get("arsenal_exercises", []):
+                            ex_name = ex_obj.get("name")
+                            spec_target = ex_obj.get("specific_target", target_group)
+                            if ex_name:
+                                st.session_state.active_checklist[ex_name] = False
+                                st.session_state.specific_targets[ex_name] = spec_target
                             
-                            st.session_state.active_checklist = {}
-                            st.session_state.specific_targets = {}
-                            
-                            for ex_obj in generated_data.get("arsenal_exercises", []):
-                                ex_name = ex_obj.get("name")
-                                spec_target = ex_obj.get("specific_target", target_group)
-                                if ex_name:
-                                    st.session_state.active_checklist[ex_name] = False
-                                    st.session_state.specific_targets[ex_name] = spec_target
-                                
-                            st.session_state.recommended_exercises = generated_data.get("recommended_exercises", [])
-                            
-                            st.success("Routine Generated. Navigate to the 'Active Session' tab to start tracking.")
-                            
-                    except Exception as e:
-                        st.error(f"API Error: {e}")
+                        st.session_state.recommended_exercises = generated_data.get("recommended_exercises", [])
+                        
+                        st.success("Routine Generated. Navigate to the 'Active Session' tab to start tracking.")
+                        
+                except Exception as e:
+                    st.error(f"API Error: {e}")
                     
     if st.session_state.generated_routine_text:
         st.markdown(st.session_state.generated_routine_text)
@@ -438,14 +488,15 @@ with tab3:
             
             all_completed = True
             
-            # Display Arsenal Exercises Checkboxes
-            for task in list(st.session_state.active_checklist.keys()):
-                is_checked = st.checkbox(task, value=st.session_state.active_checklist[task], key=f"chk_{task}")
-                st.session_state.active_checklist[task] = is_checked
-                if not is_checked:
-                    all_completed = False
+            if not st.session_state.active_checklist:
+                st.info("No exercises from Arsenal match your target.")
+            else:
+                for task in list(st.session_state.active_checklist.keys()):
+                    is_checked = st.checkbox(task, value=st.session_state.active_checklist[task], key=f"chk_{task}")
+                    st.session_state.active_checklist[task] = is_checked
+                    if not is_checked:
+                        all_completed = False
 
-            # Display Recommended Exercises (Names Only + Button)
             if st.session_state.recommended_exercises:
                 st.divider()
                 st.markdown("#### Discover & Add Recommendations")
@@ -462,11 +513,9 @@ with tab3:
                     rec_col1.markdown(f"**{rec_name}**")
                     if rec_col2.button("+", key=f"add_rec_{idx}"):
                         
-                        # Add to Checklist & Set Target
                         st.session_state.active_checklist[rec_name] = False
                         st.session_state.specific_targets[rec_name] = rec_muscle
                         
-                        # Add to Arsenal Database automatically
                         existing_arsenal = [str(x).lower() for x in st.session_state.arsenal_df['Exercise Name'].tolist()]
                         if str(rec_name).lower() not in existing_arsenal:
                             new_row = pd.DataFrame([{
@@ -476,7 +525,6 @@ with tab3:
                             }])
                             st.session_state.arsenal_df = pd.concat([st.session_state.arsenal_df, new_row], ignore_index=True)
                         
-                        # Remove from recommendations list
                         st.session_state.recommended_exercises.pop(idx)
                         st.rerun()
 
@@ -539,7 +587,6 @@ with tab4:
     with col_streak:
         st.subheader("Monthly Consistency")
         
-        # Streak Calculation Logic: STRICTLY relies on 'Daily Workout Completed' flag
         if not st.session_state.progress_df.empty:
             df_filtered = st.session_state.progress_df[st.session_state.progress_df["Exercise/Metric"] == "Daily Workout Completed"]
             workout_dates = sorted(pd.to_datetime(df_filtered["Date"]).dt.date.unique(), reverse=True)
@@ -569,7 +616,6 @@ with tab4:
                     check_date -= timedelta(days=1)
                     idx += 1
 
-        # Render Active Fire Streak using SVG
         if current_streak >= 1:
             streak_html = f"""
             <div style="display: flex; align-items: center; gap: 10px; margin-top: 10px; margin-bottom: 5px;">
@@ -629,10 +675,22 @@ with tab4:
         st.subheader("Active Goals")
         
         with st.form("add_goal_form"):
-            new_goal = st.text_input("Define a new goal", placeholder="e.g., Target 50 pushups")
+            col_g1, col_g2, col_g3 = st.columns([2, 1, 1])
+            with col_g1:
+                new_goal_ex = st.text_input("Exercise", placeholder="e.g., deadlift")
+            with col_g2:
+                new_goal_metric = st.selectbox("Target Type", ["Weight", "Reps"])
+            with col_g3:
+                new_goal_val = st.number_input("Target Value", min_value=1.0, value=50.0)
+                
             if st.form_submit_button("Add Target"):
-                if new_goal:
-                    st.session_state.user_goals.append(new_goal)
+                if new_goal_ex:
+                    st.session_state.user_goals = [g for g in st.session_state.user_goals if isinstance(g, dict)]
+                    st.session_state.user_goals.append({
+                        "exercise": new_goal_ex.strip(),
+                        "metric": new_goal_metric,
+                        "target": new_goal_val
+                    })
                     st.rerun()
                     
         st.divider()
@@ -640,9 +698,10 @@ with tab4:
         if not st.session_state.user_goals:
             st.info("No active goals. Set a target above to get started.")
         else:
+            st.session_state.user_goals = [g for g in st.session_state.user_goals if isinstance(g, dict)]
             for i, goal in enumerate(st.session_state.user_goals):
                 g_col1, g_col2 = st.columns([4, 1])
-                g_col1.markdown(f"**{i+1}.** {goal}")
+                g_col1.markdown(f"**{i+1}. {goal['exercise'].title()}** | Target: {goal['target']} {goal['metric']}")
                 
                 if g_col2.button("Delete", key=f"del_goal_{i}"):
                     st.session_state.user_goals.pop(i)

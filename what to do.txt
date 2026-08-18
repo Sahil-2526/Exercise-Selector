@@ -1,3 +1,0 @@
-button to mark workout as done for today
-add a tabs to get generated exercise to there and then give tick option to mark it done, when all ticked streak qwill increse and todays workout done
-add do workout button after generating it 
