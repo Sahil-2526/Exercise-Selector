@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import os
 import json
+import re
 import difflib 
 import calendar
 from datetime import datetime, timedelta
@@ -18,6 +19,30 @@ if hf_token:
 else:
     st.warning("HF_TOKEN not found in environment variables or .env file.")
     client = None
+
+# --- JSON PARSING HELPER ---
+def parse_json_output(output_str, is_array=True):
+    """Robust JSON parser with regex fallback to handle AI hallucinations."""
+    if not output_str:
+        return None
+        
+    output_str = output_str.strip()
+    if output_str.startswith("```json"):
+        output_str = output_str[7:-3].strip()
+    elif output_str.startswith("```"):
+        output_str = output_str[3:-3].strip()
+        
+    try:
+        return json.loads(output_str)
+    except json.JSONDecodeError:
+        pattern = r'\[.*\]' if is_array else r'\{.*\}'
+        match = re.search(pattern, output_str, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group(0))
+            except:
+                return None
+        return None
 
 # --- PAGE CONFIGURATION & CUSTOM CSS ---
 st.set_page_config(
@@ -86,6 +111,16 @@ st.markdown("""
             padding-left: 10px;
             margin-bottom: 20px;
         }
+        .muscle-tag {
+            background-color: #2a2a3b;
+            border: 1px solid #4d4d6b;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            color: #b5b0d4;
+            margin-right: 5px;
+            display: inline-block;
+        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -109,11 +144,14 @@ if 'generated_routine_text' not in st.session_state:
 if 'active_checklist' not in st.session_state:
     st.session_state.active_checklist = {}
 
-if 'recommended_exercise' not in st.session_state:
-    st.session_state.recommended_exercise = None
+if 'specific_targets' not in st.session_state:
+    st.session_state.specific_targets = {}
 
-if 'recommended_added' not in st.session_state:
-    st.session_state.recommended_added = False
+if 'recommended_exercises' not in st.session_state:
+    st.session_state.recommended_exercises = []
+
+if 'current_target_group' not in st.session_state:
+    st.session_state.current_target_group = "Full Body"
 
 st.title("Dynamic Workout Generator")
 st.markdown("<div class='motivational-quote'>Surpass your limits. Master the fundamentals. Build the handstand, perfect the shot, trust the routine.</div>", unsafe_allow_html=True)
@@ -146,7 +184,6 @@ with tab1:
                 st.warning("Please enter your performance log.")
             else:
                 with st.spinner("Extracting metrics and analyzing data..."):
-                    
                     extraction_messages = [
                         {
                             "role": "system",
@@ -154,14 +191,13 @@ with tab1:
                                 "You are an expert fitness data analyst. Extract exercises and metrics from the user input. "
                                 "CRITICAL: Correct any spelling mistakes in the exercise names. "
                                 "For every exercise, infer: "
-                                "1. Muscle Group (Choose ONE: Chest, Back, Legs, Shoulders, Core, Full Body) "
+                                "1. Muscle Group (Provide the PRECISE anatomical muscle targeted, e.g., Biceps, Upper Chest, Rear Delts, Glutes, Hamstrings). Do not use broad categories. "
                                 "2. Equipment (Choose ONE: None (Bodyweight), Dumbbells, Barbell, Cables, Court/Track, Machine) "
                                 "OUTPUT FORMAT: You must respond ONLY with a valid JSON array containing objects. "
                                 "Each object must use these exact keys: 'name', 'weight', 'reps', 'muscle', 'equipment'. "
                                 "CRITICAL METRIC RULES: "
+                                "- If a metric (weight or reps) is NOT explicitly stated for a specific exercise, you MUST output '-'. Do not guess or carry over numbers from previous exercises. "
                                 "- If the exercise is bodyweight (like pushups, pullups, planche, handstands), set 'weight' strictly to '-'. "
-                                "- If reps are not mentioned but weight is, set 'reps' to '-'. "
-                                "- If time/hold is mentioned instead of reps, place that in the 'reps' key. "
                                 "Do not include any markdown formatting, backticks, or extra text."
                             )
                         },
@@ -179,86 +215,57 @@ with tab1:
                             temperature=0.1 
                         )
                         
-                        raw_output = extraction_response.choices[0].message.content.strip()
+                        raw_output = extraction_response.choices[0].message.content
+                        extracted_data = parse_json_output(raw_output, is_array=True)
                         
-                        if raw_output.startswith("```json"):
-                            raw_output = raw_output[7:-3].strip()
-                        elif raw_output.startswith("```"):
-                            raw_output = raw_output[3:-3].strip()
-                            
-                        extracted_data = json.loads(raw_output)
-                        
-                        updated_count = 0
-                        added_count = 0
-                        arsenal_added_count = 0
-                        
-                        current_date = datetime.now().strftime("%Y-%m-%d")
-                        
-                        existing_progress = [str(x) for x in st.session_state.progress_df['Exercise/Metric'].tolist()]
-                        existing_arsenal = [str(x) for x in st.session_state.arsenal_df['Exercise Name'].tolist()]
-                        
-                        for item in extracted_data:
-                            ex_name = str(item.get("name", "Unknown Exercise"))
-                            ex_weight = str(item.get("weight", "-"))
-                            ex_reps = str(item.get("reps", "-"))
-                            ex_muscle = str(item.get("muscle", "Full Body"))
-                            ex_equip = str(item.get("equipment", "None (Bodyweight)"))
-                            
-                            # Update Progress Table
-                            close_matches_prog = difflib.get_close_matches(
-                                ex_name.lower(), 
-                                [e.lower() for e in existing_progress], 
-                                n=1, 
-                                cutoff=0.75
-                            )
-                            
-                            if close_matches_prog:
-                                matched_ex = close_matches_prog[0]
-                                match_idx = st.session_state.progress_df[
-                                    st.session_state.progress_df['Exercise/Metric'].astype(str).str.lower() == matched_ex.lower()
-                                ].index
-                                
-                                idx = match_idx[0]
-                                st.session_state.progress_df.at[idx, 'Date'] = current_date
-                                st.session_state.progress_df.at[idx, 'Weight'] = ex_weight
-                                st.session_state.progress_df.at[idx, 'Reps'] = ex_reps
-                                updated_count += 1
-                            else:
-                                new_prog_row = pd.DataFrame([{
-                                    "Date": current_date,
-                                    "Exercise/Metric": ex_name,
-                                    "Weight": ex_weight,
-                                    "Reps": ex_reps
-                                }])
-                                st.session_state.progress_df = pd.concat([st.session_state.progress_df, new_prog_row], ignore_index=True)
-                                added_count += 1
-
-                            # Update Arsenal Table
-                            close_matches_ars = difflib.get_close_matches(
-                                ex_name.lower(), 
-                                [e.lower() for e in existing_arsenal], 
-                                n=1, 
-                                cutoff=0.75
-                            )
-                            
-                            if not close_matches_ars:
-                                new_ars_row = pd.DataFrame({
-                                    "Exercise Name": [ex_name], 
-                                    "Muscle Group/Day": [ex_muscle], 
-                                    "Equipment Needed": [ex_equip]
-                                })
-                                st.session_state.arsenal_df = pd.concat([st.session_state.arsenal_df, new_ars_row], ignore_index=True)
-                                existing_arsenal.append(ex_name)
-                                arsenal_added_count += 1
-                        
-                        if updated_count > 0 or added_count > 0:
-                            st.success(f"Log Synced! ({added_count} progress added, {updated_count} updated. {arsenal_added_count} exercises auto-added to Arsenal.)")
-                            st.rerun()
+                        if not extracted_data:
+                            st.error("JSON Parsing Error: The AI did not return a valid format. Please reword your log and try again.")
                         else:
-                            st.info("AI couldn't extract valid data. Please try again.")
+                            updated_count = 0
+                            added_count = 0
+                            arsenal_added_count = 0
                             
-                    except json.JSONDecodeError as je:
-                        st.error(f"JSON Parsing Error: The AI did not return a strict format. Try rewording your log. Details: {je}")
+                            current_date = datetime.now().strftime("%Y-%m-%d")
+                            
+                            existing_progress = [str(x) for x in st.session_state.progress_df['Exercise/Metric'].tolist()]
+                            existing_arsenal = [str(x) for x in st.session_state.arsenal_df['Exercise Name'].tolist()]
+                            
+                            for item in extracted_data:
+                                ex_name = str(item.get("name", "Unknown Exercise"))
+                                ex_weight = str(item.get("weight", "-"))
+                                ex_reps = str(item.get("reps", "-"))
+                                ex_muscle = str(item.get("muscle", "Full Body"))
+                                ex_equip = str(item.get("equipment", "None (Bodyweight)"))
+                                
+                                # Update Progress Table
+                                close_matches_prog = difflib.get_close_matches(ex_name.lower(), [e.lower() for e in existing_progress], n=1, cutoff=0.75)
+                                
+                                if close_matches_prog:
+                                    matched_ex = close_matches_prog[0]
+                                    match_idx = st.session_state.progress_df[st.session_state.progress_df['Exercise/Metric'].astype(str).str.lower() == matched_ex.lower()].index
+                                    idx = match_idx[0]
+                                    st.session_state.progress_df.at[idx, 'Date'] = current_date
+                                    st.session_state.progress_df.at[idx, 'Weight'] = ex_weight
+                                    st.session_state.progress_df.at[idx, 'Reps'] = ex_reps
+                                    updated_count += 1
+                                else:
+                                    new_prog_row = pd.DataFrame([{"Date": current_date, "Exercise/Metric": ex_name, "Weight": ex_weight, "Reps": ex_reps}])
+                                    st.session_state.progress_df = pd.concat([st.session_state.progress_df, new_prog_row], ignore_index=True)
+                                    added_count += 1
+
+                                # Update Arsenal Table
+                                close_matches_ars = difflib.get_close_matches(ex_name.lower(), [e.lower() for e in existing_arsenal], n=1, cutoff=0.75)
+                                
+                                if not close_matches_ars:
+                                    new_ars_row = pd.DataFrame([{"Exercise Name": ex_name, "Muscle Group/Day": ex_muscle, "Equipment Needed": ex_equip}])
+                                    st.session_state.arsenal_df = pd.concat([st.session_state.arsenal_df, new_ars_row], ignore_index=True)
+                                    existing_arsenal.append(ex_name)
+                                    arsenal_added_count += 1
+                            
+                            if updated_count > 0 or added_count > 0:
+                                st.success(f"Log Synced. {added_count} progress added, {updated_count} updated. {arsenal_added_count} exercises auto-added to Arsenal.")
+                                st.rerun()
+                                
                     except Exception as e:
                         st.error(f"Extraction Error: {e}")
 
@@ -277,11 +284,9 @@ with tab1:
     with st.expander("Manually Add New Exercise to Arsenal"):
         with st.form("add_exercise_form"):
             col1, col2 = st.columns(2)
-            
             with col1:
                 ex_name = st.text_input("Exercise Name")
-                ex_muscle = st.selectbox("Muscle Group/Day", ["Chest", "Back", "Legs", "Shoulders", "Core", "Full Body"])
-            
+                ex_muscle = st.text_input("Precise Target Muscle", placeholder="e.g., Upper Chest, Rear Delts, Biceps")
             with col2:
                 ex_equip = st.selectbox("Equipment Needed", ["None (Bodyweight)", "Dumbbells", "Barbell", "Cables", "Court/Track"])
             
@@ -293,18 +298,12 @@ with tab1:
                     (st.session_state.arsenal_df["Muscle Group/Day"] == ex_muscle) &
                     (st.session_state.arsenal_df["Equipment Needed"] == ex_equip)
                 )
-                
                 if mask.any():
                     st.success(f"Exercise '{ex_name}' already exists in your arsenal.")
                 else:
-                    new_row = pd.DataFrame({
-                        "Exercise Name": [ex_name], 
-                        "Muscle Group/Day": [ex_muscle], 
-                        "Equipment Needed": [ex_equip]
-                    })
+                    new_row = pd.DataFrame([{"Exercise Name": ex_name, "Muscle Group/Day": ex_muscle, "Equipment Needed": ex_equip}])
                     st.session_state.arsenal_df = pd.concat([st.session_state.arsenal_df, new_row], ignore_index=True)
-                    st.success(f"Successfully added '{ex_name}' to your arsenal!")
-                
+                    st.success(f"Successfully added '{ex_name}' to your arsenal.")
                 st.rerun()
 
 
@@ -318,7 +317,7 @@ with tab2:
     with st.form("hf_generator_form"):
         col_a, col_b = st.columns(2)
         with col_a:
-            target_group = st.selectbox("Target Muscle / Focus", ["Chest", "Back", "Legs", "Shoulders", "Core", "Full Body"])
+            target_group = st.text_input("Target Muscle / Focus", placeholder="e.g., Chest, Biceps, Lats, Quads")
         with col_b:
             has_gym = st.radio("Gym Access Today?", ["Yes", "No (Bodyweight only)"])
             
@@ -327,81 +326,96 @@ with tab2:
     if generate_btn:
         if not client:
             st.error("Cannot call Hugging Face API without a valid HF_TOKEN.")
-        elif st.session_state.arsenal_df.empty:
-            st.warning("Your exercise arsenal is empty. Add exercises in the Progress & Arsenal tab first.")
+        elif not target_group:
+            st.warning("Please specify a target muscle or focus.")
         else:
-            with st.spinner("Analyzing progress history and generating routine..."):
-                arsenal_csv = st.session_state.arsenal_df.to_csv(index=False)
-                progress_csv = st.session_state.progress_df.to_csv(index=False) if not st.session_state.progress_df.empty else "No progress logged yet."
+            # Enforce Strict Filtering: Send ONLY matching exercises to AI to prevent cross-contamination
+            valid_arsenal = st.session_state.arsenal_df[
+                st.session_state.arsenal_df["Muscle Group/Day"].astype(str).str.contains(target_group, case=False, na=False)
+            ]
+
+            if valid_arsenal.empty:
+                st.warning(f"No exercises found targeting '{target_group}' in your Arsenal. Please add some first.")
+            else:
+                st.session_state.current_target_group = target_group
                 
-                messages = [
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are an expert fitness coach and bio-mechanics specialist. "
-                            "Analyze the user's stored progress history data table to evaluate their strength levels, "
-                            "and build a workout strictly utilizing exercises from their provided arsenal. "
-                            "Determine the exact number of sets, reps, and intensity for each exercise. "
-                            "CRITICAL INSTRUCTION: You MUST output a valid JSON object. Do NOT wrap in markdown blocks. "
-                            "Follow this exact JSON schema: "
-                            "{"
-                            "\"routine_text\": \"String detailing the motivation, sets, reps, and intensity recommendations.\", "
-                            "\"arsenal_exercises\": [\"Array of 3-4 exercise names selected strictly from the Arsenal CSV\"], "
-                            "\"recommended_exercise\": {"
-                            "\"name\": \"Name of 1 new exercise NOT in the Arsenal\", "
-                            "\"muscle\": \"Primary Muscle Group\", "
-                            "\"equipment\": \"Equipment Needed\""
-                            "}"
-                            "}"
+                with st.spinner("Analyzing progress history and generating routine..."):
+                    arsenal_csv = valid_arsenal.to_csv(index=False)
+                    progress_csv = st.session_state.progress_df.to_csv(index=False) if not st.session_state.progress_df.empty else "No progress logged yet."
+                    
+                    messages = [
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are an expert fitness coach and bio-mechanics specialist. "
+                                "Analyze the user's stored progress history and build a workout strictly utilizing exercises from their provided arsenal. "
+                                "Determine the exact number of sets, reps, and intensity. "
+                                "CRITICAL INSTRUCTION: You MUST output a valid JSON object. Follow this exact JSON schema strictly: "
+                                "{"
+                                "\"routine_text\": \"String detailing the motivation, sets, reps, and intensity recommendations.\", "
+                                "\"arsenal_exercises\": ["
+                                "   {\"name\": \"Exercise from Arsenal CSV\", \"specific_target\": \"Precise muscle part (e.g., Upper Chest, Rear Delts, Glutes)\"}"
+                                "], "
+                                "\"recommended_exercises\": ["
+                                "   {\"name\": \"Exact New Exercise Name 1\", \"muscle\": \"Precise Muscle Target\", \"equipment\": \"Equipment Needed\"},"
+                                "   {\"name\": \"Exact New Exercise Name 2\", \"muscle\": \"Precise Muscle Target\", \"equipment\": \"Equipment Needed\"},"
+                                "   {\"name\": \"Exact New Exercise Name 3\", \"muscle\": \"Precise Muscle Target\", \"equipment\": \"Equipment Needed\"},"
+                                "   {\"name\": \"Exact New Exercise Name 4\", \"muscle\": \"Precise Muscle Target\", \"equipment\": \"Equipment Needed\"},"
+                                "   {\"name\": \"Exact New Exercise Name 5\", \"muscle\": \"Precise Muscle Target\", \"equipment\": \"Equipment Needed\"}"
+                                "]"
+                                "}"
+                                "CRITICAL RULES: "
+                                "1. You MUST provide exactly 5 recommended exercises that target the chosen muscle but are NOT in the Arsenal CSV. "
+                                "2. For recommended_exercises 'name', provide ONLY the exact name of the exercise. Do NOT include weights, sets, reps, or descriptions in the name field."
+                            )
+                        },
+                        {
+                            "role": "user",
+                            "content": f"""
+                            Target Focus: {target_group}
+                            Gym Access Available: {has_gym}
+                            
+                            User Progress History Records:
+                            {progress_csv}
+                            
+                            Available Arsenal (Filtered for Focus):
+                            {arsenal_csv}
+                            """
+                        }
+                    ]
+                    
+                    try:
+                        response = client.chat.completions.create(
+                            model="meta-llama/Llama-3.1-8B-Instruct",
+                            messages=messages,
+                            max_tokens=1000,
+                            temperature=0.4
                         )
-                    },
-                    {
-                        "role": "user",
-                        "content": f"""
-                        Target Focus: {target_group}
-                        Gym Access Available: {has_gym}
                         
-                        User Progress History Records (CSV):
-                        {progress_csv}
+                        raw_output = response.choices[0].message.content
+                        generated_data = parse_json_output(raw_output, is_array=False)
                         
-                        Available Arsenal (CSV):
-                        {arsenal_csv}
-                        """
-                    }
-                ]
-                
-                try:
-                    response = client.chat.completions.create(
-                        model="meta-llama/Llama-3.1-8B-Instruct",
-                        messages=messages,
-                        max_tokens=800,
-                        temperature=0.7
-                    )
-                    
-                    raw_output = response.choices[0].message.content.strip()
-                    
-                    if raw_output.startswith("```json"):
-                        raw_output = raw_output[7:-3].strip()
-                    elif raw_output.startswith("```"):
-                        raw_output = raw_output[3:-3].strip()
-                        
-                    generated_data = json.loads(raw_output)
-                    
-                    st.session_state.generated_routine_text = generated_data.get("routine_text", "Workout routine generated.")
-                    
-                    st.session_state.active_checklist = {}
-                    for ex in generated_data.get("arsenal_exercises", []):
-                        st.session_state.active_checklist[ex] = False
-                        
-                    st.session_state.recommended_exercise = generated_data.get("recommended_exercise", None)
-                    st.session_state.recommended_added = False
-                    
-                    st.success("Routine Generated! Navigate to the 'Active Session' tab to start tracking.")
-                    
-                except json.JSONDecodeError as je:
-                    st.error("AI output parsing failed. The model did not return strict JSON. Please try generating again.")
-                except Exception as e:
-                    st.error(f"API Error: {e}")
+                        if not generated_data:
+                            st.error("JSON Parsing Error: The AI did not return a strict format. Please try generating again.")
+                        else:
+                            st.session_state.generated_routine_text = generated_data.get("routine_text", "Workout routine generated.")
+                            
+                            st.session_state.active_checklist = {}
+                            st.session_state.specific_targets = {}
+                            
+                            for ex_obj in generated_data.get("arsenal_exercises", []):
+                                ex_name = ex_obj.get("name")
+                                spec_target = ex_obj.get("specific_target", target_group)
+                                if ex_name:
+                                    st.session_state.active_checklist[ex_name] = False
+                                    st.session_state.specific_targets[ex_name] = spec_target
+                                
+                            st.session_state.recommended_exercises = generated_data.get("recommended_exercises", [])
+                            
+                            st.success("Routine Generated. Navigate to the 'Active Session' tab to start tracking.")
+                            
+                    except Exception as e:
+                        st.error(f"API Error: {e}")
                     
     if st.session_state.generated_routine_text:
         st.markdown(st.session_state.generated_routine_text)
@@ -413,7 +427,7 @@ with tab2:
 with tab3:
     st.subheader("Active Training Session")
     
-    if not st.session_state.active_checklist and not st.session_state.recommended_exercise:
+    if not st.session_state.active_checklist and not st.session_state.recommended_exercises:
         st.info("No active routine. Use the AI Generator tab to create one.")
     else:
         col_tracker, col_routine = st.columns([1, 1], gap="large")
@@ -431,38 +445,40 @@ with tab3:
                 if not is_checked:
                     all_completed = False
 
-            # Display Recommended Exercise
-            if st.session_state.recommended_exercise:
-                rec = st.session_state.recommended_exercise
-                rec_name = rec.get("name", "Unknown Recommended Exercise")
-                
+            # Display Recommended Exercises (Names Only + Button)
+            if st.session_state.recommended_exercises:
                 st.divider()
-                st.markdown("#### Recommended Addition")
+                st.markdown("#### Discover & Add Recommendations")
+                st.caption("Click + to add a recommendation directly to your Arsenal and Active Checklist.")
                 
-                if not st.session_state.recommended_added:
+                recs_to_show = list(st.session_state.recommended_exercises)
+                
+                for idx, rec in enumerate(recs_to_show):
+                    rec_name = rec.get("name", "Unknown Exercise")
+                    rec_muscle = rec.get("muscle", st.session_state.current_target_group)
+                    rec_equip = rec.get("equipment", "None (Bodyweight)")
+                    
                     rec_col1, rec_col2 = st.columns([4, 1])
                     rec_col1.markdown(f"**{rec_name}**")
-                    if rec_col2.button("+", key="add_rec_btn"):
-                        # Add to active checklist
-                        st.session_state.active_checklist[rec_name] = False
-                        st.session_state.recommended_added = True
+                    if rec_col2.button("+", key=f"add_rec_{idx}"):
                         
-                        # Insert into Arsenal if missing
+                        # Add to Checklist & Set Target
+                        st.session_state.active_checklist[rec_name] = False
+                        st.session_state.specific_targets[rec_name] = rec_muscle
+                        
+                        # Add to Arsenal Database automatically
                         existing_arsenal = [str(x).lower() for x in st.session_state.arsenal_df['Exercise Name'].tolist()]
-                        if rec_name.lower() not in existing_arsenal:
+                        if str(rec_name).lower() not in existing_arsenal:
                             new_row = pd.DataFrame([{
                                 "Exercise Name": rec_name,
-                                "Muscle Group/Day": rec.get("muscle", "Full Body"),
-                                "Equipment Needed": rec.get("equipment", "None (Bodyweight)")
+                                "Muscle Group/Day": rec_muscle,
+                                "Equipment Needed": rec_equip
                             }])
                             st.session_state.arsenal_df = pd.concat([st.session_state.arsenal_df, new_row], ignore_index=True)
-                            
+                        
+                        # Remove from recommendations list
+                        st.session_state.recommended_exercises.pop(idx)
                         st.rerun()
-                    
-                    # If recommended isn't added, it doesn't count against completion, but we show it.
-                else:
-                    # It was added, so it renders in the loop above. But if we need to ensure it's tracked:
-                    pass
 
             st.divider()
             
@@ -479,14 +495,24 @@ with tab3:
                     st.session_state.progress_df = pd.concat([st.session_state.progress_df, new_prog_row], ignore_index=True)
                     st.session_state.active_checklist = {}
                     st.session_state.generated_routine_text = ""
-                    st.session_state.recommended_exercise = None
-                    st.session_state.recommended_added = False
+                    st.session_state.specific_targets = {}
+                    st.session_state.recommended_exercises = []
                     st.success("Progress saved. Your active streak has been updated.")
                     st.rerun()
 
         with col_routine:
             st.markdown("### Suggested Plan Details")
             st.markdown(st.session_state.generated_routine_text)
+            
+            st.divider()
+            st.markdown("#### Targeted Muscles (Active Checklist)")
+            
+            if st.session_state.active_checklist:
+                for task in st.session_state.active_checklist.keys():
+                    spec_target = st.session_state.specific_targets.get(task, st.session_state.current_target_group)
+                    st.markdown(f"**{task}:** <span class='muscle-tag'>{spec_target}</span>", unsafe_allow_html=True)
+            else:
+                st.caption("No exercises in active checklist.")
 
 
 # ==========================================
@@ -513,8 +539,10 @@ with tab4:
     with col_streak:
         st.subheader("Monthly Consistency")
         
+        # Streak Calculation Logic: STRICTLY relies on 'Daily Workout Completed' flag
         if not st.session_state.progress_df.empty:
-            workout_dates = sorted(pd.to_datetime(st.session_state.progress_df["Date"]).dt.date.unique(), reverse=True)
+            df_filtered = st.session_state.progress_df[st.session_state.progress_df["Exercise/Metric"] == "Daily Workout Completed"]
+            workout_dates = sorted(pd.to_datetime(df_filtered["Date"]).dt.date.unique(), reverse=True)
         else:
             workout_dates = []
 
@@ -541,6 +569,7 @@ with tab4:
                     check_date -= timedelta(days=1)
                     idx += 1
 
+        # Render Active Fire Streak using SVG
         if current_streak >= 1:
             streak_html = f"""
             <div style="display: flex; align-items: center; gap: 10px; margin-top: 10px; margin-bottom: 5px;">
@@ -565,7 +594,7 @@ with tab4:
             """
             
         st.markdown(streak_html, unsafe_allow_html=True)
-        st.caption("Your streak stays active as long as you log a workout today or yesterday.")
+        st.caption("Your streak increments only when you Mark a Workout as Done.")
         st.write("")
         
         today = datetime.now()
