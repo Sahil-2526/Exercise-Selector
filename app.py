@@ -103,11 +103,17 @@ if 'progress_df' not in st.session_state:
 if 'user_goals' not in st.session_state:
     st.session_state.user_goals = [] 
 
-if 'generated_routine' not in st.session_state:
-    st.session_state.generated_routine = ""
+if 'generated_routine_text' not in st.session_state:
+    st.session_state.generated_routine_text = ""
 
 if 'active_checklist' not in st.session_state:
     st.session_state.active_checklist = {}
+
+if 'recommended_exercise' not in st.session_state:
+    st.session_state.recommended_exercise = None
+
+if 'recommended_added' not in st.session_state:
+    st.session_state.recommended_added = False
 
 st.title("Dynamic Workout Generator")
 st.markdown("<div class='motivational-quote'>Surpass your limits. Master the fundamentals. Build the handstand, perfect the shot, trust the routine.</div>", unsafe_allow_html=True)
@@ -335,8 +341,18 @@ with tab2:
                             "You are an expert fitness coach and bio-mechanics specialist. "
                             "Analyze the user's stored progress history data table to evaluate their strength levels, "
                             "and build a workout strictly utilizing exercises from their provided arsenal. "
-                            "Determine the exact number of sets, reps, and intensity for each exercise based on their recorded progress metrics. "
-                            "CRITICAL: Never output duplicate exercises in the routine."
+                            "Determine the exact number of sets, reps, and intensity for each exercise. "
+                            "CRITICAL INSTRUCTION: You MUST output a valid JSON object. Do NOT wrap in markdown blocks. "
+                            "Follow this exact JSON schema: "
+                            "{"
+                            "\"routine_text\": \"String detailing the motivation, sets, reps, and intensity recommendations.\", "
+                            "\"arsenal_exercises\": [\"Array of 3-4 exercise names selected strictly from the Arsenal CSV\"], "
+                            "\"recommended_exercise\": {"
+                            "\"name\": \"Name of 1 new exercise NOT in the Arsenal\", "
+                            "\"muscle\": \"Primary Muscle Group\", "
+                            "\"equipment\": \"Equipment Needed\""
+                            "}"
+                            "}"
                         )
                     },
                     {
@@ -350,11 +366,6 @@ with tab2:
                         
                         Available Arsenal (CSV):
                         {arsenal_csv}
-                        
-                        Instructions:
-                        1. Select 3-4 UNIQUE exercises from the Arsenal matching the target focus. Never list the same exercise twice.
-                        2. Prescribe exact sets, reps/hold-times, and intensity tailored specifically to their stored progress values.
-                        3. Provide 1 recommended addition (not currently in the Arsenal CSV) with brief benefits.
                         """
                     }
                 ]
@@ -367,14 +378,33 @@ with tab2:
                         temperature=0.7
                     )
                     
-                    st.session_state.generated_routine = response.choices[0].message.content
+                    raw_output = response.choices[0].message.content.strip()
+                    
+                    if raw_output.startswith("```json"):
+                        raw_output = raw_output[7:-3].strip()
+                    elif raw_output.startswith("```"):
+                        raw_output = raw_output[3:-3].strip()
+                        
+                    generated_data = json.loads(raw_output)
+                    
+                    st.session_state.generated_routine_text = generated_data.get("routine_text", "Workout routine generated.")
+                    
+                    st.session_state.active_checklist = {}
+                    for ex in generated_data.get("arsenal_exercises", []):
+                        st.session_state.active_checklist[ex] = False
+                        
+                    st.session_state.recommended_exercise = generated_data.get("recommended_exercise", None)
+                    st.session_state.recommended_added = False
+                    
                     st.success("Routine Generated! Navigate to the 'Active Session' tab to start tracking.")
                     
+                except json.JSONDecodeError as je:
+                    st.error("AI output parsing failed. The model did not return strict JSON. Please try generating again.")
                 except Exception as e:
                     st.error(f"API Error: {e}")
                     
-    if st.session_state.generated_routine:
-        st.markdown(st.session_state.generated_routine)
+    if st.session_state.generated_routine_text:
+        st.markdown(st.session_state.generated_routine_text)
 
 
 # ==========================================
@@ -383,55 +413,80 @@ with tab2:
 with tab3:
     st.subheader("Active Training Session")
     
-    if not st.session_state.generated_routine:
+    if not st.session_state.active_checklist and not st.session_state.recommended_exercise:
         st.info("No active routine. Use the AI Generator tab to create one.")
     else:
-        col_routine, col_tracker = st.columns([1, 1], gap="large")
+        col_tracker, col_routine = st.columns([1, 1], gap="large")
         
-        with col_routine:
-            st.markdown("### Suggested Plan")
-            st.markdown(st.session_state.generated_routine)
-            
         with col_tracker:
             st.markdown("### Execution Checklist")
-            st.caption("Select the exercises you are performing today and check them off as you complete them.")
+            st.caption("Check off your exercises as you complete them.")
             
-            selected_tasks = st.multiselect(
-                "Build today's checklist:", 
-                st.session_state.arsenal_df["Exercise Name"].tolist(),
-                placeholder="Choose exercises from Arsenal..."
-            )
+            all_completed = True
             
-            if selected_tasks:
-                st.divider()
-                all_completed = True
+            # Display Arsenal Exercises Checkboxes
+            for task in list(st.session_state.active_checklist.keys()):
+                is_checked = st.checkbox(task, value=st.session_state.active_checklist[task], key=f"chk_{task}")
+                st.session_state.active_checklist[task] = is_checked
+                if not is_checked:
+                    all_completed = False
+
+            # Display Recommended Exercise
+            if st.session_state.recommended_exercise:
+                rec = st.session_state.recommended_exercise
+                rec_name = rec.get("name", "Unknown Recommended Exercise")
                 
-                for task in selected_tasks:
-                    if task not in st.session_state.active_checklist:
-                        st.session_state.active_checklist[task] = False
+                st.divider()
+                st.markdown("#### Recommended Addition")
+                
+                if not st.session_state.recommended_added:
+                    rec_col1, rec_col2 = st.columns([4, 1])
+                    rec_col1.markdown(f"**{rec_name}**")
+                    if rec_col2.button("+", key="add_rec_btn"):
+                        # Add to active checklist
+                        st.session_state.active_checklist[rec_name] = False
+                        st.session_state.recommended_added = True
                         
-                    is_checked = st.checkbox(task, value=st.session_state.active_checklist[task], key=f"chk_{task}")
-                    st.session_state.active_checklist[task] = is_checked
-                    
-                    if not is_checked:
-                        all_completed = False
-                        
-                if all_completed and len(selected_tasks) > 0:
-                    st.success("All tasks completed. Excellent work.")
-                    if st.button("Mark Workout as Done for Today"):
-                        # Record the completion in progress_df to trigger streak
-                        new_prog_row = pd.DataFrame([{
-                            "Date": datetime.now().strftime("%Y-%m-%d"),
-                            "Exercise/Metric": "Daily Workout Completed",
-                            "Weight": "-",
-                            "Reps": "1",
-                            "Notes": "Routine finished."
-                        }])
-                        st.session_state.progress_df = pd.concat([st.session_state.progress_df, new_prog_row], ignore_index=True)
-                        st.session_state.active_checklist = {}
-                        st.session_state.generated_routine = ""
-                        st.success("Progress saved. Your active streak has been updated.")
+                        # Insert into Arsenal if missing
+                        existing_arsenal = [str(x).lower() for x in st.session_state.arsenal_df['Exercise Name'].tolist()]
+                        if rec_name.lower() not in existing_arsenal:
+                            new_row = pd.DataFrame([{
+                                "Exercise Name": rec_name,
+                                "Muscle Group/Day": rec.get("muscle", "Full Body"),
+                                "Equipment Needed": rec.get("equipment", "None (Bodyweight)")
+                            }])
+                            st.session_state.arsenal_df = pd.concat([st.session_state.arsenal_df, new_row], ignore_index=True)
+                            
                         st.rerun()
+                    
+                    # If recommended isn't added, it doesn't count against completion, but we show it.
+                else:
+                    # It was added, so it renders in the loop above. But if we need to ensure it's tracked:
+                    pass
+
+            st.divider()
+            
+            if all_completed and len(st.session_state.active_checklist) > 0:
+                st.success("All exercises completed. Excellent work.")
+                if st.button("Mark Workout as Done"):
+                    new_prog_row = pd.DataFrame([{
+                        "Date": datetime.now().strftime("%Y-%m-%d"),
+                        "Exercise/Metric": "Daily Workout Completed",
+                        "Weight": "-",
+                        "Reps": "1",
+                        "Notes": "Routine finished via Active Session."
+                    }])
+                    st.session_state.progress_df = pd.concat([st.session_state.progress_df, new_prog_row], ignore_index=True)
+                    st.session_state.active_checklist = {}
+                    st.session_state.generated_routine_text = ""
+                    st.session_state.recommended_exercise = None
+                    st.session_state.recommended_added = False
+                    st.success("Progress saved. Your active streak has been updated.")
+                    st.rerun()
+
+        with col_routine:
+            st.markdown("### Suggested Plan Details")
+            st.markdown(st.session_state.generated_routine_text)
 
 
 # ==========================================
@@ -458,7 +513,6 @@ with tab4:
     with col_streak:
         st.subheader("Monthly Consistency")
         
-        # Streak Calculation Logic
         if not st.session_state.progress_df.empty:
             workout_dates = sorted(pd.to_datetime(st.session_state.progress_df["Date"]).dt.date.unique(), reverse=True)
         else:
@@ -487,7 +541,6 @@ with tab4:
                     check_date -= timedelta(days=1)
                     idx += 1
 
-        # Render Active Fire Streak using SVG (No Emojis, Shadow Silk theme)
         if current_streak >= 1:
             streak_html = f"""
             <div style="display: flex; align-items: center; gap: 10px; margin-top: 10px; margin-bottom: 5px;">
