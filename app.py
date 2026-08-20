@@ -8,11 +8,14 @@ import calendar
 import sqlite3
 import io
 from datetime import datetime, timedelta
-from dotenv import load_dotenv
 from huggingface_hub import InferenceClient
 
-# Load local .env file if it exists
-load_dotenv()
+# Optional: Load local .env file if it exists (for local development)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 # --- PAGE CONFIGURATION & MASTER UI STYLING ---
 st.set_page_config(
@@ -27,7 +30,7 @@ st.markdown("""
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
 
         .stApp {
-            background-color: #0f0f13; /* Deep Slate/Charcoal */
+            background-color: #0f0f13; 
             color: #f1f1f6;
             font-family: 'Plus Jakarta Sans', sans-serif;
         }
@@ -39,7 +42,7 @@ st.markdown("""
             padding: 8px 16px;
             border-radius: 12px;
             border: 1px solid rgba(255, 255, 255, 0.05);
-            flex-wrap: wrap; /* Allows tabs to wrap on very small screens */
+            flex-wrap: wrap; 
         }
         .stTabs [data-baseweb="tab"] {
             color: #8c8c9e;
@@ -59,14 +62,14 @@ st.markdown("""
         .stButton>button {
             background-color: #2a2a3b;
             color: #e0e0eb;
-            border: 1px solid rgba(181, 176, 212, 0.2); /* Soft Lavender Border */
+            border: 1px solid rgba(181, 176, 212, 0.2); 
             border-radius: 10px;
             font-weight: 600;
             padding: 0.5rem 1rem;
             transition: all 0.2s ease;
         }
         .stButton>button:hover {
-            background-color: #b5b0d4; /* Lavender Accent */
+            background-color: #b5b0d4; 
             color: #0f0f13;
             border-color: #b5b0d4;
             transform: translateY(-1px);
@@ -108,7 +111,6 @@ st.markdown("""
             font-weight: 500;
         }
         
-        /* CSS GRID CALENDAR FOR MOBILE COMPATIBILITY */
         .calendar-grid {
             display: grid;
             grid-template-columns: repeat(7, 1fr);
@@ -152,7 +154,6 @@ st.markdown("""
             border: none;
         }
 
-        /* MOBILE MEDIA QUERIES */
         @media (max-width: 768px) {
             .calendar-grid { gap: 4px; }
             .calendar-day { min-height: 50px; padding: 6px 2px; }
@@ -166,7 +167,6 @@ st.markdown("""
 
 # --- DATABASE INITIALIZATION ---
 def get_db_connection():
-    # check_same_thread=False is safer for Streamlit's threading model
     return sqlite3.connect("workout_engine.db", check_same_thread=False)
 
 def init_db():
@@ -188,8 +188,13 @@ init_db()
 DEFAULT_ARSENAL = pd.DataFrame(columns=["Exercise Name", "Muscle Group/Day", "Equipment Needed"])
 DEFAULT_PROGRESS = pd.DataFrame(columns=["Date", "Exercise/Metric", "Weight", "Reps", "Notes"])
 
-# --- API INITIALIZATION ---
-hf_token = os.environ.get("HF_TOKEN")
+# --- DEPLOYMENT-READY HUGGING FACE API INITIALIZATION ---
+hf_token = None
+try:
+    hf_token = st.secrets["HF_TOKEN"]
+except (FileNotFoundError, KeyError):
+    hf_token = os.environ.get("HF_TOKEN")
+
 client = InferenceClient(token=hf_token) if hf_token else None
 
 # --- MASTER EXERCISE BANK ---
@@ -271,37 +276,86 @@ def parse_json_output(output_str, is_array=True):
                 pass
         return None
 
-# --- IMPROVED LOCAL FALLBACK PARSER ---
+# --- LOCAL FALLBACK PARSER ---
 def parse_log_locally(user_input):
-    clauses = re.split(r'[,;\n]|\band\b', user_input)
+    user_input = user_input.lower()
+    user_input = re.sub(r'\band\b|\bthen\b|&', ',', user_input)
+    clauses = [c.strip() for c in re.split(r'[,;\n]', user_input) if c.strip()]
+    
     parsed_results = []
     
+    muscle_map = {
+        "Shoulders": ["pike", "shoulder", "press", "raise", "delt", "overhead", "handstand", "hspu", "frog", "planche"],
+        "Arms": ["curl", "bicep", "tricep", "extension", "dip", "skullcrusher", "hammer"],
+        "Core": ["plank", "crunch", "core", "ab", "twist", "situp", "sit-up", "l-sit", "hollow", "russian", "roller", "toes to bar"],
+        "Back": ["pullup", "pull-up", "row", "lat", "back", "deadlift", "chinup", "chin-up", "muscle up", "shrug"],
+        "Legs": ["squat", "leg", "lunge", "calf", "calves", "quad", "hamstring", "pistol", "glute", "stepup", "romanian"],
+        "Chest": ["pushup", "push-up", "bench", "chest", "fly", "pec", "cable crossover"]
+    }
+    
+    equip_map = {
+        "Dumbbells": ["dumbbell", "db", "dumbell"],
+        "Barbell": ["barbell", "bb", "plate"],
+        "Cables": ["cable", "pulley", "rope"],
+        "Machine": ["machine", "smith", "hack", "press machine"],
+        "Bands": ["band", "resistance"],
+    }
+
     for clause in clauses:
-        clause = clause.strip()
-        if not clause:
-            continue
+        weight_match = re.search(r'(\d+(?:\.\d+)?)\s*(kg|lbs|kilos)', clause)
+        ex_weight = f"{weight_match.group(1)}{weight_match.group(2)}" if weight_match else "-"
+        
+        reps_match = re.search(r'(\d+)\s*(?:x|\*|sets? of)\s*(\d+)', clause)
+        if reps_match:
+            ex_reps = f"{reps_match.group(1)}x{reps_match.group(2)}"
+            clause_clean = re.sub(r'\d+\s*(?:x|\*|sets? of)\s*\d+', '', clause)
+        else:
+            clause_clean = clause
+            numbers = re.findall(r'\b\d+\b', re.sub(r'\d+(?:\.\d+)?\s*(?:kg|lbs|kilos)', '', clause_clean))
+            ex_reps = numbers[0] if numbers else "-"
             
-        weights = re.findall(r'(\d+(?:\.\d+)?)\s*(?:kg|lbs)', clause, re.IGNORECASE)
-        ex_weight = f"{weights[0]}kg" if weights else "-"
-        
-        clause_no_wt = re.sub(r'\d+(?:\.\d+)?\s*(?:kg|lbs)', '', clause, flags=re.IGNORECASE).strip()
-        numbers = re.findall(r'\b\d+\b', clause_no_wt)
-        
-        ex_name = re.sub(r'\b\d+\b', '', clause_no_wt).strip()
-        ex_name = re.sub(r'\s+', ' ', ex_name) 
+        clause_clean = re.sub(r'\d+(?:\.\d+)?\s*(?:kg|lbs|kilos)', '', clause_clean)
+        ex_name = re.sub(r'\b\d+\b', '', clause_clean).strip()
+        ex_name = re.sub(r'[^a-z\s-]', '', ex_name) 
+        ex_name = re.sub(r'\s+', ' ', ex_name).title() 
         
         if not ex_name or len(ex_name) < 2:
             continue
             
-        reps = numbers[0] if numbers else "-"
-            
+        name_lower = ex_name.lower()
+        
+        # Default to 'Add Manually'
+        inferred_muscle = "Add Manually"
+        inferred_equip = "None (Bodyweight)"
+        
+        for group, keywords in muscle_map.items():
+            if any(re.search(rf'\b{kw}\b', name_lower) for kw in keywords):
+                inferred_muscle = group
+                break
+                
+        found_equip = False
+        for equip, keywords in equip_map.items():
+            if any(re.search(rf'\b{kw}\b', name_lower) for kw in keywords):
+                inferred_equip = equip
+                found_equip = True
+                break
+                
+        if not found_equip:
+            if "bench press" in name_lower or "deadlift" in name_lower:
+                inferred_equip = "Barbell"
+            elif "fly" in name_lower or "curl" in name_lower or "lateral raise" in name_lower:
+                inferred_equip = "Dumbbells"
+            elif "pulldown" in name_lower or "pushdown" in name_lower or "face pull" in name_lower:
+                inferred_equip = "Cables"
+
         parsed_results.append({
             "name": ex_name,
             "weight": ex_weight,
-            "reps": reps,
-            "muscle": "Full Body",
-            "equipment": "None (Bodyweight)"
+            "reps": ex_reps,
+            "muscle": inferred_muscle,
+            "equipment": inferred_equip
         })
+        
     return parsed_results
 
 # --- SESSION STATE INITIALIZATION ---
@@ -311,7 +365,8 @@ default_states = {
     'active_checklist': {},
     'specific_targets': {},
     'recommended_exercises': [],
-    'current_target_group': "Full Body"
+    'current_target_group': "Full Body",
+    'hf_quota_exhausted': False  # Dynamic state tracking API availability
 }
 
 for key, val in default_states.items():
@@ -322,12 +377,11 @@ for key, val in default_states.items():
 if not st.session_state.logged_in_user:
     st.markdown("<br><br>", unsafe_allow_html=True) 
     
-    # Use columns to center the box on desktop, Streamlit auto-adjusts this to full width on mobile
     _, auth_col, _ = st.columns([1, 2.5, 1]) 
     
     with auth_col:
         with st.container(border=True):
-            st.markdown("<h2 style='text-align: center; font-weight: 800; margin-bottom: 8px;'>Workout Engine</h2>", unsafe_allow_html=True)
+            st.markdown("<h2 style='text-align: center; font-weight: 800; margin-bottom: 8px;'>Keep Working Out</h2>", unsafe_allow_html=True)
             st.markdown("<p style='text-align: center; color: #8c8c9e; font-size: 0.9rem; margin-bottom: 24px;'>Secure Workspace Authentication</p>", unsafe_allow_html=True)
             
             auth_mode = st.radio("Mode", ["Login", "Register Account"], horizontal=True, label_visibility="collapsed")
@@ -348,7 +402,6 @@ if not st.session_state.logged_in_user:
                             if c.fetchone():
                                 st.error("Username already registered. Please login.")
                             else:
-                                # ADDED CHECK: Ensure the password doesn't already exist in the database
                                 c.execute("SELECT password FROM users WHERE password=?", (password_input,))
                                 if c.fetchone():
                                     st.error("This password is already in use by another account. Please choose a unique password.")
@@ -410,7 +463,6 @@ if 'data_loaded' not in st.session_state or st.session_state.data_loaded != curr
         
     st.session_state.data_loaded = current_user
 
-# Helper function to persist state changes back to SQL database
 def save_user_state():
     with get_db_connection() as conn:
         c = conn.cursor()
@@ -422,15 +474,30 @@ def save_user_state():
         ))
         conn.commit()
 
-# Top Bar Workspace Header & Logout Action
-top_col1, top_col2 = st.columns([5, 1])
+# --- TOP BAR WORKSPACE & DYNAMIC QUOTA BADGE ---
+top_col1, top_col2, top_col3 = st.columns([4, 3, 1])
 with top_col1:
     st.title(f"Keep Working Out — [{current_user.upper()}]")
-with top_col2:
+
+# Use a placeholder so we can instantly update the badge state if a quota exception is caught below
+badge_placeholder = top_col2.empty()
+
+def render_api_badge():
+    if not client:
+        badge_placeholder.markdown("<div style='background-color: rgba(250, 204, 21, 0.1); border: 1px solid #facc15; color: #facc15; padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: 700; display: inline-block; margin-top: 15px;'>● LOCAL OFFLINE MODE</div>", unsafe_allow_html=True)
+    elif st.session_state.hf_quota_exhausted:
+        badge_placeholder.markdown("<div style='background-color: rgba(248, 113, 113, 0.1); border: 1px solid #f87171; color: #f87171; padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: 700; display: inline-block; margin-top: 15px;'>● AI QUOTA EXHAUSTED - PLEASE ADD EXERCISE MANUALLY</div>", unsafe_allow_html=True)
+    else:
+        badge_placeholder.markdown("<div style='background-color: rgba(74, 222, 128, 0.1); border: 1px solid #4ade80; color: #4ade80; padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: 700; display: inline-block; margin-top: 15px;'>● AI ACTIVE</div>", unsafe_allow_html=True)
+
+# Render the initial state of the badge
+render_api_badge()
+
+with top_col3:
     st.write("")
     if st.button("Sign Out", use_container_width=True):
         save_user_state()
-        for key in ['logged_in_user', 'data_loaded', 'generated_routine_text', 'active_checklist', 'specific_targets', 'recommended_exercises']:
+        for key in ['logged_in_user', 'data_loaded', 'generated_routine_text', 'active_checklist', 'specific_targets', 'recommended_exercises', 'hf_quota_exhausted']:
             st.session_state.pop(key, None)
         st.rerun()
 
@@ -446,7 +513,6 @@ with tab1:
     st.subheader("Performance Logs")
     st.markdown("Log your performance in plain text. Metrics sync instantly to your history and library.")
     
-    # --- UI FILTERING LOGIC ---
     hidden_metrics = ["Daily Workout Completed", "General Training Session"]
     
     mask = ~st.session_state.progress_df["Exercise/Metric"].isin(hidden_metrics)
@@ -491,19 +557,24 @@ with tab1:
                                 "content": f"Extract workout achievements from this text: '{user_log_input}'"
                             }
                         ]
-                        extraction_response = client.chat.completions.create(
+                        response = client.chat.completions.create(
                             model="meta-llama/Llama-3.1-8B-Instruct",
                             messages=extraction_messages,
                             max_tokens=400,
                             temperature=0.1 
                         )
-                        extracted_data = parse_json_output(extraction_response.choices[0].message.content, is_array=True)
+                        extracted_data = parse_json_output(response.choices[0].message.content, is_array=True)
+                        st.session_state.hf_quota_exhausted = False
                     except Exception:
                         extracted_data = None 
+                        st.session_state.hf_quota_exhausted = True
+                        render_api_badge() # Dynamically updates badge to RED
                 
                 if not extracted_data:
                     extracted_data = parse_log_locally(user_log_input)
-                    st.toast("Parsed via local deterministic engine.", icon="⚡")
+                    st.toast("Parsed via local offline engine.", icon="⚡")
+                else:
+                    st.toast("Parsed via Hugging Face AI.", icon="🧠")
 
                 updated_count = 0
                 added_count = 0
@@ -517,7 +588,7 @@ with tab1:
                     ex_name = str(item.get("name", "Unknown Exercise")).strip()
                     ex_weight = str(item.get("weight", "-")).strip()
                     ex_reps = str(item.get("reps", "-")).strip()
-                    ex_muscle = str(item.get("muscle", "Full Body"))
+                    ex_muscle = str(item.get("muscle", "Add Manually"))
                     ex_equip = str(item.get("equipment", "None (Bodyweight)"))
                     
                     if not ex_name or ex_name.lower() == "none":
@@ -559,7 +630,7 @@ with tab1:
     )
     save_user_state()
 
-    with st.expander("Manually Add Exercise"):
+    with st.expander("Manually Add Exercise (Form)"):
         with st.form("add_exercise_form"):
             col1, col2 = st.columns(2)
             with col1:
@@ -633,8 +704,11 @@ with tab2:
                             temperature=0.4
                         )
                         generated_data = parse_json_output(response.choices[0].message.content, is_array=False)
+                        st.session_state.hf_quota_exhausted = False
                     except Exception:
                         generated_data = None
+                        st.session_state.hf_quota_exhausted = True
+                        render_api_badge() # Dynamically updates badge to RED
 
             if not generated_data:
                 target_key = target_group.lower().strip()
@@ -664,6 +738,9 @@ with tab2:
                     "arsenal_exercises": arsenal_exs,
                     "recommended_exercises": recs[:5]
                 }
+                st.toast("Routine built via local offline engine.", icon="⚡")
+            else:
+                st.toast("Routine built via Hugging Face AI.", icon="🧠")
 
             st.session_state.generated_routine_text = generated_data.get("routine_text", "Workout routine generated.")
             st.session_state.active_checklist = {}
@@ -790,50 +867,54 @@ with tab4:
         yesterday_date = today_date - timedelta(days=1)
         
         current_streak = 0
-        if workout_dates:
-            if workout_dates[0] == today_date:
-                current_streak = 1
-                check_date = yesterday_date
-                idx = 1
-            elif workout_dates[0] == yesterday_date:
-                current_streak = 1
-                check_date = yesterday_date - timedelta(days=1)
-                idx = 1
+        is_today_done = today_date in workout_dates
+        
+        # STRICT STREAK CALCULATION
+        check_date = today_date if is_today_done else yesterday_date
+        
+        for d in workout_dates:
+            if d == check_date:
+                current_streak += 1
+                check_date -= timedelta(days=1)
+            elif d > check_date:
+                continue 
             else:
-                idx = 0
-                check_date = None
-            
-            if current_streak > 0:
-                while idx < len(workout_dates) and workout_dates[idx] == check_date:
-                    current_streak += 1
-                    check_date -= timedelta(days=1)
-                    idx += 1
+                break
 
-        if current_streak >= 1:
+        if current_streak > 0:
+            if is_today_done:
+                badge_color = "#4ade80" 
+                text_shadow = "0 0 12px rgba(74, 222, 128, 0.4)"
+                streak_title = f"{current_streak} DAY STREAK SECURED"
+            else:
+                badge_color = "#facc15" 
+                text_shadow = "0 0 12px rgba(250, 204, 21, 0.4)"
+                streak_title = f"{current_streak} DAY STREAK (WAITING ON TODAY)"
+                
             streak_html = f"""
             <div style="display: flex; align-items: center; gap: 12px; margin-top: 10px; margin-bottom: 5px;">
-                <svg viewBox="0 0 24 24" width="40" height="40" fill="#b5b0d4" style="filter: drop-shadow(0px 0px 10px #b5b0d4);">
+                <svg viewBox="0 0 24 24" width="40" height="40" fill="{badge_color}" style="filter: drop-shadow({text_shadow});">
                     <path d="M12 2C12 2 7 7 7 13C7 15.76 9.24 18 12 18C14.76 18 17 15.76 17 13C17 7 12 2 12 2ZM12 16C10.9 16 10 15.1 10 14C10 12.9 12 10 12 10C12 10 14 11.9 14 14C14 15.1 13.1 16 12 16Z"/>
                 </svg>
-                <h2 style="color: #b5b0d4; text-shadow: 0 0 12px rgba(181,176,212,0.4); font-weight: 800; margin: 0;">
-                    {current_streak} DAY ACTIVE STREAK
+                <h2 style="color: {badge_color}; text-shadow: {text_shadow}; font-weight: 800; margin: 0; font-size: 1.4rem;">
+                    {streak_title}
                 </h2>
             </div>
             """
         else:
             streak_html = f"""
             <div style="display: flex; align-items: center; gap: 12px; margin-top: 10px; margin-bottom: 5px;">
-                <svg viewBox="0 0 24 24" width="40" height="40" fill="#2a2a3b">
+                <svg viewBox="0 0 24 24" width="40" height="40" fill="#4d4d6b">
                     <path d="M12 2C12 2 7 7 7 13C7 15.76 9.24 18 12 18C14.76 18 17 15.76 17 13C17 7 12 2 12 2ZM12 16C10.9 16 10 15.1 10 14C10 12.9 12 10 12 10C12 10 14 11.9 14 14C14 15.1 13.1 16 12 16Z"/>
                 </svg>
-                <h2 style="color: #4d4d6b; font-weight: 800; margin: 0;">
-                    {current_streak} DAY ACTIVE STREAK
+                <h2 style="color: #4d4d6b; font-weight: 800; margin: 0; font-size: 1.4rem;">
+                    0 DAY ACTIVE STREAK
                 </h2>
             </div>
             """
             
         st.markdown(streak_html, unsafe_allow_html=True)
-        st.caption("Streak increases when you complete and log a training session.")
+        st.caption("Streak increases only when you complete and log a training session.")
         st.write("")
         
         today = datetime.now()
@@ -842,14 +923,10 @@ with tab4:
         st.markdown(f"#### {month_name} {today.year}")
         day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
         
-        # --- RESPONSIVE CSS GRID CALENDAR ---
         cal_html = '<div class="calendar-grid">'
-        
-        # Render Header Row
         for d_name in day_names:
             cal_html += f'<div class="calendar-day-header">{d_name}</div>'
             
-        # Render Days
         for week in cal:
             for day in week:
                 if day == 0:
@@ -857,15 +934,13 @@ with tab4:
                 else:
                     current_date = datetime(today.year, today.month, day).date()
                     if current_date in workout_dates:
-                        cal_html += f'<div class="calendar-day done"><b>{day}</b><span style="font-size:0.75rem; font-weight:800; margin-top: 2px;">Done</span></div>'
+                        cal_html += f'<div class="calendar-day done" style="background-color: #4ade80; color: #0f0f13; box-shadow: 0 0 12px rgba(74, 222, 128, 0.4);"><b>{day}</b><span style="font-size:0.75rem; font-weight:800; margin-top: 2px;">Done</span></div>'
                     elif current_date == today.date():
-                        cal_html += f'<div class="calendar-day today"><b>{day}</b><span style="font-size:0.75rem; font-weight:700; margin-top: 2px;">Today</span></div>'
+                        cal_html += f'<div class="calendar-day today" style="border: 2px dashed #facc15; color: #facc15;"><b>{day}</b><span style="font-size:0.75rem; font-weight:700; margin-top: 2px;">Pending</span></div>'
                     else:
                         cal_html += f'<div class="calendar-day inactive"><b>{day}</b></div>'
                         
         cal_html += '</div>'
-        
-        # Render the custom HTML Grid instead of Streamlit Columns
         st.markdown(cal_html, unsafe_allow_html=True)
 
     with col_goals:
