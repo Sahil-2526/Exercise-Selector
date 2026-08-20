@@ -14,41 +14,185 @@ from huggingface_hub import InferenceClient
 # Load local .env file if it exists
 load_dotenv()
 
+# --- PAGE CONFIGURATION & MASTER UI STYLING ---
+st.set_page_config(
+    page_title="Keep Working Out",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
+# Refined "Shadow & Silk" Aesthetic & Mobile Responsiveness
+st.markdown("""
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+        .stApp {
+            background-color: #0f0f13; /* Deep Slate/Charcoal */
+            color: #f1f1f6;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+        header { background-color: transparent !important; }
+        
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 12px;
+            background-color: rgba(26, 26, 36, 0.6);
+            padding: 8px 16px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            flex-wrap: wrap; /* Allows tabs to wrap on very small screens */
+        }
+        .stTabs [data-baseweb="tab"] {
+            color: #8c8c9e;
+            height: 44px;
+            background-color: transparent;
+            border-radius: 8px;
+            font-weight: 600;
+            padding: 0px 20px;
+            transition: all 0.2s ease;
+        }
+        .stTabs [aria-selected="true"] {
+            color: #ffffff !important;
+            background-color: #2a2a3b !important;
+            border-bottom: none !important;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+        .stButton>button {
+            background-color: #2a2a3b;
+            color: #e0e0eb;
+            border: 1px solid rgba(181, 176, 212, 0.2); /* Soft Lavender Border */
+            border-radius: 10px;
+            font-weight: 600;
+            padding: 0.5rem 1rem;
+            transition: all 0.2s ease;
+        }
+        .stButton>button:hover {
+            background-color: #b5b0d4; /* Lavender Accent */
+            color: #0f0f13;
+            border-color: #b5b0d4;
+            transform: translateY(-1px);
+        }
+        .stTextInput>div>div>input, .stTextArea>div>div>textarea, .stSelectbox>div>div>div {
+            background-color: #1a1a24 !important;
+            color: #ffffff !important;
+            border: 1px solid rgba(181, 176, 212, 0.1) !important;
+            border-radius: 10px !important;
+        }
+        .stTextInput>div>div>input:focus, .stTextArea>div>div>textarea:focus {
+            border-color: #b5b0d4 !important;
+            box-shadow: 0 0 0 1px #b5b0d4 !important;
+        }
+        div[data-testid="stExpander"] {
+            background-color: #1a1a24;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+        }
+        .motivational-quote {
+            font-style: italic;
+            color: #9d99c7;
+            background: linear-gradient(90deg, rgba(42,42,59,0.4) 0%, rgba(26,26,36,0) 100%);
+            border-left: 4px solid #b5b0d4;
+            padding: 12px 16px;
+            border-radius: 0 8px 8px 0;
+            margin-bottom: 24px;
+            font-size: 0.95rem;
+        }
+        .muscle-tag {
+            background-color: rgba(42, 42, 59, 0.8);
+            border: 1px solid rgba(181, 176, 212, 0.2);
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 0.85em;
+            color: #d1ccf8;
+            margin-right: 6px;
+            display: inline-block;
+            font-weight: 500;
+        }
+        
+        /* CSS GRID CALENDAR FOR MOBILE COMPATIBILITY */
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 8px;
+            margin-top: 10px;
+        }
+        .calendar-day-header {
+            text-align: center;
+            font-weight: 600;
+            color: #8c8c9e;
+            margin-bottom: 4px;
+            font-size: 0.85rem;
+        }
+        .calendar-day {
+            text-align: center;
+            border-radius: 8px;
+            padding: 10px 4px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 64px;
+        }
+        .calendar-day.done {
+            background-color: #b5b0d4;
+            color: #0f0f13;
+            box-shadow: 0 0 12px rgba(181, 176, 212, 0.4);
+        }
+        .calendar-day.today {
+            background-color: transparent;
+            border: 2px dashed #b5b0d4;
+            color: #b5b0d4;
+        }
+        .calendar-day.inactive {
+            background-color: rgba(26,26,36,0.6);
+            border: 1px solid rgba(255,255,255,0.05);
+            color: #5f5f73;
+        }
+        .calendar-day.empty {
+            background-color: transparent;
+            border: none;
+        }
+
+        /* MOBILE MEDIA QUERIES */
+        @media (max-width: 768px) {
+            .calendar-grid { gap: 4px; }
+            .calendar-day { min-height: 50px; padding: 6px 2px; }
+            .calendar-day b { font-size: 0.9rem; }
+            .calendar-day span { font-size: 0.65rem !important; }
+            .stTabs [data-baseweb="tab-list"] { padding: 4px; }
+            .stTabs [data-baseweb="tab"] { padding: 0px 10px; font-size: 0.85rem; }
+        }
+    </style>
+""", unsafe_allow_html=True)
+
 # --- DATABASE INITIALIZATION ---
 def get_db_connection():
-    return sqlite3.connect("workout_engine.db")
+    # check_same_thread=False is safer for Streamlit's threading model
+    return sqlite3.connect("workout_engine.db", check_same_thread=False)
 
 def init_db():
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            username TEXT PRIMARY KEY,
-            password TEXT,
-            arsenal TEXT,
-            progress TEXT,
-            goals TEXT
-        )
-    ''')
-    conn.commit()
-    conn.close()
+    with get_db_connection() as conn:
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                username TEXT PRIMARY KEY,
+                password TEXT,
+                arsenal TEXT,
+                progress TEXT,
+                goals TEXT
+            )
+        ''')
+        conn.commit()
 
 init_db()
 
-# --- DEFAULT USER DATA (EMPTY ARSENAL) ---
+# --- DEFAULT USER DATA ---
 DEFAULT_ARSENAL = pd.DataFrame(columns=["Exercise Name", "Muscle Group/Day", "Equipment Needed"])
 DEFAULT_PROGRESS = pd.DataFrame(columns=["Date", "Exercise/Metric", "Weight", "Reps", "Notes"])
 
-# --- API INITIALIZATION WITH AUTO-FALLBACK ---
+# --- API INITIALIZATION ---
 hf_token = os.environ.get("HF_TOKEN")
-client = None
-if hf_token:
-    try:
-        client = InferenceClient(token=hf_token)
-    except Exception:
-        client = None
+client = InferenceClient(token=hf_token) if hf_token else None
 
-# --- MASTER EXERCISE BANK (For Local Recommendations Fallback) ---
+# --- MASTER EXERCISE BANK ---
 MASTER_EXERCISE_BANK = {
     "chest": [
         {"name": "Incline Dumbbell Press", "muscle": "Upper Chest", "equipment": "Dumbbells"},
@@ -96,6 +240,12 @@ MASTER_EXERCISE_BANK = {
         {"name": "Ab Wheel Rollout", "muscle": "Abs", "equipment": "Machine"},
         {"name": "Bicycle Crunches", "muscle": "Obliques", "equipment": "None (Bodyweight)"},
         {"name": "Toes to Bar", "muscle": "Lower Abs", "equipment": "None (Bodyweight)"}
+    ],
+    "calisthenics": [
+        {"name": "Push to Handstand Progression", "muscle": "Shoulders / Core", "equipment": "None (Bodyweight)"},
+        {"name": "Pike Pushups", "muscle": "Front Delts", "equipment": "None (Bodyweight)"},
+        {"name": "Frog Stand", "muscle": "Balance / Shoulders", "equipment": "None (Bodyweight)"},
+        {"name": "L-Sit Hold", "muscle": "Core / Triceps", "equipment": "None (Bodyweight)"}
     ]
 }
 
@@ -108,6 +258,7 @@ def parse_json_output(output_str, is_array=True):
         output_str = output_str[7:-3].strip()
     elif output_str.startswith("```"):
         output_str = output_str[3:-3].strip()
+    
     try:
         return json.loads(output_str)
     except json.JSONDecodeError:
@@ -117,7 +268,7 @@ def parse_json_output(output_str, is_array=True):
             try:
                 return json.loads(match.group(0))
             except:
-                return None
+                pass
         return None
 
 # --- IMPROVED LOCAL FALLBACK PARSER ---
@@ -134,7 +285,6 @@ def parse_log_locally(user_input):
         ex_weight = f"{weights[0]}kg" if weights else "-"
         
         clause_no_wt = re.sub(r'\d+(?:\.\d+)?\s*(?:kg|lbs)', '', clause, flags=re.IGNORECASE).strip()
-        
         numbers = re.findall(r'\b\d+\b', clause_no_wt)
         
         ex_name = re.sub(r'\b\d+\b', '', clause_no_wt).strip()
@@ -154,194 +304,99 @@ def parse_log_locally(user_input):
         })
     return parsed_results
 
-# --- PAGE CONFIGURATION & MASTER UI STYLING ---
-st.set_page_config(
-    page_title="Workout Engine",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
+# --- SESSION STATE INITIALIZATION ---
+default_states = {
+    'logged_in_user': None,
+    'generated_routine_text': "",
+    'active_checklist': {},
+    'specific_targets': {},
+    'recommended_exercises': [],
+    'current_target_group': "Full Body"
+}
 
-st.markdown("""
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
-
-        .stApp {
-            background-color: #0f0f13;
-            color: #f1f1f6;
-            font-family: 'Plus Jakarta Sans', sans-serif;
-        }
-        header {
-            background-color: transparent !important;
-        }
-        .stTabs [data-baseweb="tab-list"] {
-            gap: 12px;
-            background-color: rgba(26, 26, 36, 0.6);
-            padding: 8px 16px;
-            border-radius: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.05);
-        }
-        .stTabs [data-baseweb="tab"] {
-            color: #8c8c9e;
-            height: 44px;
-            background-color: transparent;
-            border-radius: 8px;
-            font-weight: 600;
-            padding: 0px 20px;
-            transition: all 0.2s ease;
-        }
-        .stTabs [aria-selected="true"] {
-            color: #ffffff !important;
-            background-color: #2a2a3b !important;
-            border-bottom: none !important;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-        }
-        .stButton>button {
-            background-color: #2a2a3b;
-            color: #e0e0eb;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 10px;
-            font-weight: 600;
-            padding: 0.5rem 1rem;
-            transition: all 0.2s ease;
-        }
-        .stButton>button:hover {
-            background-color: #b5b0d4;
-            color: #0f0f13;
-            border-color: #b5b0d4;
-            transform: translateY(-1px);
-        }
-        .stTextInput>div>div>input, .stTextArea>div>div>textarea {
-            background-color: #1a1a24 !important;
-            color: #ffffff !important;
-            border: 1px solid rgba(255, 255, 255, 0.1) !important;
-            border-radius: 10px !important;
-        }
-        .stTextInput>div>div>input:focus, .stTextArea>div>div>textarea:focus {
-            border-color: #b5b0d4 !important;
-            box-shadow: 0 0 0 1px #b5b0d4 !important;
-        }
-        .stSelectbox>div>div>div {
-            background-color: #1a1a24 !important;
-            color: #ffffff !important;
-            border-radius: 10px !important;
-            border: 1px solid rgba(255, 255, 255, 0.1) !important;
-        }
-        div[data-testid="stExpander"] {
-            background-color: #1a1a24;
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 12px;
-        }
-        .motivational-quote {
-            font-style: italic;
-            color: #9d99c7;
-            background: linear-gradient(90deg, rgba(42,42,59,0.4) 0%, rgba(26,26,36,0) 100%);
-            border-left: 4px solid #b5b0d4;
-            padding: 12px 16px;
-            border-radius: 0 8px 8px 0;
-            margin-bottom: 24px;
-            font-size: 0.95rem;
-        }
-        .muscle-tag {
-            background-color: rgba(42, 42, 59, 0.8);
-            border: 1px solid rgba(181, 176, 212, 0.2);
-            padding: 4px 10px;
-            border-radius: 6px;
-            font-size: 0.85em;
-            color: #d1ccf8;
-            margin-right: 6px;
-            display: inline-block;
-            font-weight: 500;
-        }
-        .auth-container {
-            max-width: 420px;
-            margin: 80px auto;
-            padding: 40px;
-            background-color: rgba(26, 26, 36, 0.8);
-            backdrop-filter: blur(12px);
-            border-radius: 20px;
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            box-shadow: 0 20px 40px rgba(0,0,0,0.5);
-        }
-    </style>
-""", unsafe_allow_html=True)
-
-# --- USER PERSISTENCE LOGIC ---
-if 'logged_in_user' not in st.session_state:
-    st.session_state.logged_in_user = None
+for key, val in default_states.items():
+    if key not in st.session_state:
+        st.session_state[key] = val
 
 # --- AUTHENTICATION SCREEN ---
 if not st.session_state.logged_in_user:
-    st.markdown("<div class='auth-container'>", unsafe_allow_html=True)
-    st.markdown("<h2 style='text-align: center; font-weight: 800; margin-bottom: 8px;'>Workout Engine</h2>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #8c8c9e; font-size: 0.9rem; margin-bottom: 24px;'>Secure Workspace Authentication</p>", unsafe_allow_html=True)
+    st.markdown("<br><br>", unsafe_allow_html=True) 
     
-    auth_mode = st.radio("Mode", ["Login", "Register Account"], horizontal=True, label_visibility="collapsed")
-    st.write("")
-    username_input = st.text_input("Username", placeholder="Enter your username").strip()
-    password_input = st.text_input("Password", type="password", placeholder="Enter your secure password").strip()
-    st.write("")
+    # Use columns to center the box on desktop, Streamlit auto-adjusts this to full width on mobile
+    _, auth_col, _ = st.columns([1, 2.5, 1]) 
     
-    if st.button("Access Workspace", use_container_width=True):
-        if not username_input or not password_input:
-            st.warning("Please provide both username and password.")
-        else:
-            conn = get_db_connection()
-            c = conn.cursor()
+    with auth_col:
+        with st.container(border=True):
+            st.markdown("<h2 style='text-align: center; font-weight: 800; margin-bottom: 8px;'>Workout Engine</h2>", unsafe_allow_html=True)
+            st.markdown("<p style='text-align: center; color: #8c8c9e; font-size: 0.9rem; margin-bottom: 24px;'>Secure Workspace Authentication</p>", unsafe_allow_html=True)
             
-            if auth_mode == "Register Account":
-                c.execute("SELECT username FROM users WHERE username=?", (username_input,))
-                if c.fetchone():
-                    st.error("Username already registered. Please login.")
-                else:
-                    ars_json = DEFAULT_ARSENAL.to_json(orient="records")
-                    prog_json = DEFAULT_PROGRESS.to_json(orient="records")
-                    goals_json = json.dumps([])
-                    
-                    c.execute("INSERT INTO users (username, password, arsenal, progress, goals) VALUES (?, ?, ?, ?, ?)",
-                              (username_input, password_input, ars_json, prog_json, goals_json))
-                    conn.commit()
-                    st.session_state.logged_in_user = username_input
-                    st.success(f"Workspace initialized for {username_input}!")
-                    st.rerun()
-            else:
-                c.execute("SELECT password FROM users WHERE username=?", (username_input,))
-                row = c.fetchone()
-                if row:
-                    if row[0] == password_input:
-                        st.session_state.logged_in_user = username_input
-                        st.success(f"Welcome back, {username_input}!")
-                        st.rerun()
-                    else:
-                        st.error("Invalid password.")
-                else:
-                    st.error("Account not found. Please register.")
-            conn.close()
+            auth_mode = st.radio("Mode", ["Login", "Register Account"], horizontal=True, label_visibility="collapsed")
+            st.write("")
+            username_input = st.text_input("Username", placeholder="Enter your username").strip()
+            password_input = st.text_input("Password", type="password", placeholder="Enter your secure password").strip()
+            st.write("")
             
-    st.markdown("</div>", unsafe_allow_html=True)
+            if st.button("Access Workspace", use_container_width=True):
+                if not username_input or not password_input:
+                    st.warning("Please provide both username and password.")
+                else:
+                    with get_db_connection() as conn:
+                        c = conn.cursor()
+                        
+                        if auth_mode == "Register Account":
+                            c.execute("SELECT username FROM users WHERE username=?", (username_input,))
+                            if c.fetchone():
+                                st.error("Username already registered. Please login.")
+                            else:
+                                # ADDED CHECK: Ensure the password doesn't already exist in the database
+                                c.execute("SELECT password FROM users WHERE password=?", (password_input,))
+                                if c.fetchone():
+                                    st.error("This password is already in use by another account. Please choose a unique password.")
+                                else:
+                                    ars_json = DEFAULT_ARSENAL.to_json(orient="records")
+                                    prog_json = DEFAULT_PROGRESS.to_json(orient="records")
+                                    goals_json = json.dumps([])
+                                    
+                                    c.execute("INSERT INTO users (username, password, arsenal, progress, goals) VALUES (?, ?, ?, ?, ?)",
+                                              (username_input, password_input, ars_json, prog_json, goals_json))
+                                    conn.commit()
+                                    
+                                    st.session_state.logged_in_user = username_input
+                                    st.success(f"Workspace initialized for {username_input}!")
+                                    st.rerun()
+                        else:
+                            c.execute("SELECT password FROM users WHERE username=?", (username_input,))
+                            row = c.fetchone()
+                            if row and row[0] == password_input:
+                                st.session_state.logged_in_user = username_input
+                                st.success(f"Welcome back, {username_input}!")
+                                st.rerun()
+                            elif row:
+                                st.error("Invalid password.")
+                            else:
+                                st.error("Account not found. Please register.")
+            
     st.stop()
 
 # --- LOAD CURRENT USER WORKSPACE FROM SQL DB ---
 current_user = st.session_state.logged_in_user
 
 if 'data_loaded' not in st.session_state or st.session_state.data_loaded != current_user:
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute("SELECT arsenal, progress, goals FROM users WHERE username=?", (current_user,))
-    row = c.fetchone()
-    conn.close()
+    with get_db_connection() as conn:
+        c = conn.cursor()
+        c.execute("SELECT arsenal, progress, goals FROM users WHERE username=?", (current_user,))
+        row = c.fetchone()
     
     if row:
         try:
             ars_df = pd.read_json(io.StringIO(row[0]), orient="records")
-            if ars_df.empty:
-                ars_df = DEFAULT_ARSENAL.copy()
+            ars_df = ars_df if not ars_df.empty else DEFAULT_ARSENAL.copy()
         except:
             ars_df = DEFAULT_ARSENAL.copy()
             
         try:
             prog_df = pd.read_json(io.StringIO(row[1]), orient="records")
-            if prog_df.empty:
-                prog_df = DEFAULT_PROGRESS.copy()
+            prog_df = prog_df if not prog_df.empty else DEFAULT_PROGRESS.copy()
         except:
             prog_df = DEFAULT_PROGRESS.copy()
             
@@ -355,41 +410,28 @@ if 'data_loaded' not in st.session_state or st.session_state.data_loaded != curr
         
     st.session_state.data_loaded = current_user
 
-# Other runtime state variables
-if 'generated_routine_text' not in st.session_state:
-    st.session_state.generated_routine_text = ""
-if 'active_checklist' not in st.session_state:
-    st.session_state.active_checklist = {}
-if 'specific_targets' not in st.session_state:
-    st.session_state.specific_targets = {}
-if 'recommended_exercises' not in st.session_state:
-    st.session_state.recommended_exercises = []
-if 'current_target_group' not in st.session_state:
-    st.session_state.current_target_group = "Full Body"
-
 # Helper function to persist state changes back to SQL database
 def save_user_state():
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute("UPDATE users SET arsenal=?, progress=?, goals=? WHERE username=?", (
-        st.session_state.arsenal_df.to_json(orient="records"),
-        st.session_state.progress_df.to_json(orient="records"),
-        json.dumps(st.session_state.user_goals),
-        current_user
-    ))
-    conn.commit()
-    conn.close()
+    with get_db_connection() as conn:
+        c = conn.cursor()
+        c.execute("UPDATE users SET arsenal=?, progress=?, goals=? WHERE username=?", (
+            st.session_state.arsenal_df.to_json(orient="records"),
+            st.session_state.progress_df.to_json(orient="records"),
+            json.dumps(st.session_state.user_goals),
+            current_user
+        ))
+        conn.commit()
 
 # Top Bar Workspace Header & Logout Action
 top_col1, top_col2 = st.columns([5, 1])
 with top_col1:
-    st.title(f"Workout Engine — [{current_user.upper()}]")
+    st.title(f"Keep Working Out — [{current_user.upper()}]")
 with top_col2:
     st.write("")
     if st.button("Sign Out", use_container_width=True):
         save_user_state()
-        st.session_state.logged_in_user = None
-        st.session_state.data_loaded = None
+        for key in ['logged_in_user', 'data_loaded', 'generated_routine_text', 'active_checklist', 'specific_targets', 'recommended_exercises']:
+            st.session_state.pop(key, None)
         st.rerun()
 
 st.markdown("<div class='motivational-quote'>Surpass your limits. Master the fundamentals. Your isolated workout records are synced securely.</div>", unsafe_allow_html=True)
@@ -404,12 +446,21 @@ with tab1:
     st.subheader("Performance Logs")
     st.markdown("Log your performance in plain text. Metrics sync instantly to your history and library.")
     
-    st.session_state.progress_df = st.data_editor(
-        st.session_state.progress_df,
+    # --- UI FILTERING LOGIC ---
+    hidden_metrics = ["Daily Workout Completed", "General Training Session"]
+    
+    mask = ~st.session_state.progress_df["Exercise/Metric"].isin(hidden_metrics)
+    display_df = st.session_state.progress_df[mask].copy()
+    hidden_df = st.session_state.progress_df[~mask].copy()
+    
+    edited_df = st.data_editor(
+        display_df,
         num_rows="dynamic",
         use_container_width=True,
         key="progress_editor"
     )
+    
+    st.session_state.progress_df = pd.concat([edited_df, hidden_df], ignore_index=True)
     save_user_state()
     
     with st.form("progress_extraction_form"):
@@ -682,14 +733,22 @@ with tab3:
             if all_completed and len(st.session_state.active_checklist) > 0:
                 st.success("All exercises checked off.")
                 if st.button("Mark Workout as Done"):
-                    new_prog_row = pd.DataFrame([{"Date": datetime.now().strftime("%Y-%m-%d"), "Exercise/Metric": "Daily Workout Completed", "Weight": "-", "Reps": "1", "Notes": "Completed session"}])
-                    st.session_state.progress_df = pd.concat([st.session_state.progress_df, new_prog_row], ignore_index=True)
+                    new_rows = []
+                    today_str = datetime.now().strftime("%Y-%m-%d")
+                    for task, is_checked in st.session_state.active_checklist.items():
+                        if is_checked:
+                            new_rows.append({"Date": today_str, "Exercise/Metric": task, "Weight": "-", "Reps": "Done", "Notes": "Generated Routine"})
+                    
+                    if new_rows:
+                        new_df = pd.DataFrame(new_rows)
+                        st.session_state.progress_df = pd.concat([st.session_state.progress_df, new_df], ignore_index=True)
+                        
                     st.session_state.active_checklist = {}
                     st.session_state.generated_routine_text = ""
                     st.session_state.specific_targets = {}
                     st.session_state.recommended_exercises = []
                     save_user_state()
-                    st.success("Session saved! Streak updated.")
+                    st.success("Session saved! Exercises added to your logs.")
                     st.rerun()
 
         with col_routine:
@@ -710,7 +769,7 @@ with tab3:
 with tab4:
     st.markdown("<div style='display: flex; justify-content: flex-end; margin-bottom: 20px;'>", unsafe_allow_html=True)
     if st.button("Quick Log: Mark Today as Complete"):
-        new_prog_row = pd.DataFrame([{"Date": datetime.now().strftime("%Y-%m-%d"), "Exercise/Metric": "Daily Workout Completed", "Weight": "-", "Reps": "1", "Notes": "Quick Log"}])
+        new_prog_row = pd.DataFrame([{"Date": datetime.now().strftime("%Y-%m-%d"), "Exercise/Metric": "General Training Session", "Weight": "-", "Reps": "-", "Notes": "Quick Log"}])
         st.session_state.progress_df = pd.concat([st.session_state.progress_df, new_prog_row], ignore_index=True)
         save_user_state()
         st.success("Today logged successfully.")
@@ -722,8 +781,8 @@ with tab4:
     with col_streak:
         st.subheader("Consistency Heatmap")
         if not st.session_state.progress_df.empty:
-            df_filtered = st.session_state.progress_df[st.session_state.progress_df["Exercise/Metric"] == "Daily Workout Completed"]
-            workout_dates = sorted(pd.to_datetime(df_filtered["Date"]).dt.date.unique(), reverse=True)
+            valid_dates = pd.to_datetime(st.session_state.progress_df["Date"], errors='coerce').dropna()
+            workout_dates = sorted(valid_dates.dt.date.unique(), reverse=True)
         else:
             workout_dates = []
 
@@ -783,28 +842,36 @@ with tab4:
         st.markdown(f"#### {month_name} {today.year}")
         day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
         
-        header_cols = st.columns(7)
-        for i, d_name in enumerate(day_names):
-            header_cols[i].markdown(f"<div style='text-align: center; font-weight: 600; color: #8c8c9e; margin-bottom: 8px; font-size: 0.85rem;'>{d_name}</div>", unsafe_allow_html=True)
+        # --- RESPONSIVE CSS GRID CALENDAR ---
+        cal_html = '<div class="calendar-grid">'
+        
+        # Render Header Row
+        for d_name in day_names:
+            cal_html += f'<div class="calendar-day-header">{d_name}</div>'
             
+        # Render Days
         for week in cal:
-            week_cols = st.columns(7)
-            for i, day in enumerate(week):
+            for day in week:
                 if day == 0:
-                    week_cols[i].write("")
+                    cal_html += '<div class="calendar-day empty"></div>'
                 else:
                     current_date = datetime(today.year, today.month, day).date()
                     if current_date in workout_dates:
-                        week_cols[i].markdown(f"<div style='text-align: center; background-color: #2a2a3b; border: 1px solid #b5b0d4; color: #b5b0d4; border-radius: 8px; padding: 10px; margin-bottom: 6px; font-size: 0.9rem;'><b>{day}</b><br><span style='font-size:0.75rem;'>Done</span></div>", unsafe_allow_html=True)
+                        cal_html += f'<div class="calendar-day done"><b>{day}</b><span style="font-size:0.75rem; font-weight:800; margin-top: 2px;">Done</span></div>'
                     elif current_date == today.date():
-                        week_cols[i].markdown(f"<div style='text-align: center; background-color: #b5b0d4; color: #0f0f13; border-radius: 8px; padding: 10px; margin-bottom: 6px; font-size: 0.9rem;'><b>{day}</b><br><span style='font-size:0.75rem; font-weight:700;'>Today</span></div>", unsafe_allow_html=True)
+                        cal_html += f'<div class="calendar-day today"><b>{day}</b><span style="font-size:0.75rem; font-weight:700; margin-top: 2px;">Today</span></div>'
                     else:
-                        week_cols[i].markdown(f"<div style='text-align: center; background-color: rgba(26,26,36,0.6); border: 1px solid rgba(255,255,255,0.05); border-radius: 8px; padding: 10px; margin-bottom: 6px; color: #5f5f73; font-size: 0.9rem;'><b>{day}</b></div>", unsafe_allow_html=True)
+                        cal_html += f'<div class="calendar-day inactive"><b>{day}</b></div>'
+                        
+        cal_html += '</div>'
+        
+        # Render the custom HTML Grid instead of Streamlit Columns
+        st.markdown(cal_html, unsafe_allow_html=True)
 
     with col_goals:
         st.subheader("Milestone Goals")
         with st.form("add_goal_form"):
-            new_goal = st.text_input("Define a target goal", placeholder="e.g., Handstand hold for 10s")
+            new_goal = st.text_input("Define a target goal", placeholder="e.g., Master the push to handstand")
             if st.form_submit_button("Add Goal"):
                 if new_goal:
                     st.session_state.user_goals.append(new_goal)
@@ -822,4 +889,3 @@ with tab4:
                     st.session_state.user_goals.pop(i)
                     save_user_state()
                     st.rerun()
-
