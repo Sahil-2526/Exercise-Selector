@@ -177,16 +177,22 @@ def init_db():
                 password TEXT,
                 arsenal TEXT,
                 progress TEXT,
-                goals TEXT
+                goals TEXT,
+                streaks TEXT
             )
         ''')
+        # Backward compatibility: Add streaks column if it doesn't exist
+        try:
+            conn.execute("ALTER TABLE users ADD COLUMN streaks TEXT DEFAULT '[]'")
+        except sqlite3.OperationalError:
+            pass
         conn.commit()
 
 init_db()
 
 # --- DEFAULT USER DATA ---
 DEFAULT_ARSENAL = pd.DataFrame(columns=["Exercise Name", "Muscle Group/Day", "Equipment Needed"])
-DEFAULT_PROGRESS = pd.DataFrame(columns=["Date", "Exercise/Metric", "Weight", "Reps", "Notes"])
+DEFAULT_PROGRESS = pd.DataFrame(columns=["Date", "Exercise/Metric", "Weight", "Reps"])
 
 # --- DEPLOYMENT-READY HUGGING FACE API INITIALIZATION ---
 hf_token = None
@@ -344,7 +350,8 @@ default_states = {
     'specific_targets': {},
     'recommended_exercises': [],
     'current_target_group': "Full Body",
-    'hf_quota_exhausted': False  
+    'hf_quota_exhausted': False,
+    'streak_dates': [] # SEPARATE STREAK DATABASE
 }
 
 for key, val in default_states.items():
@@ -387,9 +394,10 @@ if not st.session_state.logged_in_user:
                                     ars_json = DEFAULT_ARSENAL.to_json(orient="records")
                                     prog_json = DEFAULT_PROGRESS.to_json(orient="records")
                                     goals_json = json.dumps([])
+                                    streaks_json = json.dumps([])
                                     
-                                    c.execute("INSERT INTO users (username, password, arsenal, progress, goals) VALUES (?, ?, ?, ?, ?)",
-                                              (username_input, password_input, ars_json, prog_json, goals_json))
+                                    c.execute("INSERT INTO users (username, password, arsenal, progress, goals, streaks) VALUES (?, ?, ?, ?, ?, ?)",
+                                              (username_input, password_input, ars_json, prog_json, goals_json, streaks_json))
                                     conn.commit()
                                     
                                     st.session_state.logged_in_user = username_input
@@ -415,7 +423,7 @@ current_user = st.session_state.logged_in_user
 if 'data_loaded' not in st.session_state or st.session_state.data_loaded != current_user:
     with get_db_connection() as conn:
         c = conn.cursor()
-        c.execute("SELECT arsenal, progress, goals FROM users WHERE username=?", (current_user,))
+        c.execute("SELECT arsenal, progress, goals, streaks FROM users WHERE username=?", (current_user,))
         row = c.fetchone()
     
     if row:
@@ -434,20 +442,23 @@ if 'data_loaded' not in st.session_state or st.session_state.data_loaded != curr
         st.session_state.arsenal_df = ars_df
         st.session_state.progress_df = prog_df
         st.session_state.user_goals = json.loads(row[2]) if row[2] else []
+        st.session_state.streak_dates = json.loads(row[3]) if len(row) > 3 and row[3] else []
     else:
         st.session_state.arsenal_df = DEFAULT_ARSENAL.copy()
         st.session_state.progress_df = DEFAULT_PROGRESS.copy()
         st.session_state.user_goals = []
+        st.session_state.streak_dates = []
         
     st.session_state.data_loaded = current_user
 
 def save_user_state():
     with get_db_connection() as conn:
         c = conn.cursor()
-        c.execute("UPDATE users SET arsenal=?, progress=?, goals=? WHERE username=?", (
+        c.execute("UPDATE users SET arsenal=?, progress=?, goals=?, streaks=? WHERE username=?", (
             st.session_state.arsenal_df.to_json(orient="records"),
             st.session_state.progress_df.to_json(orient="records"),
             json.dumps(st.session_state.user_goals),
+            json.dumps(st.session_state.streak_dates),
             current_user
         ))
         conn.commit()
@@ -465,7 +476,7 @@ def render_api_badge():
     elif st.session_state.hf_quota_exhausted:
         badge_placeholder.markdown("<div style='background-color: rgba(248, 113, 113, 0.1); border: 1px solid #f87171; color: #f87171; padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: 700; display: inline-block; margin-top: 15px;'>● AI QUOTA EXHAUSTED - PLEASE ADD EXERCISE MANUALLY</div>", unsafe_allow_html=True)
     else:
-        badge_placeholder.markdown("<div style='background-color: rgba(74, 222, 128, 0.1); border: 1px solid #4ade80; color: #4ade80; padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: 700; display: inline-block; margin-top: 15px;'>● AI ACTIVE</div>", unsafe_allow_html=True)
+        badge_placeholder.markdown("<div style='background-color: rgba(74, 222, 128, 0.1); border: 1px solid #4ade80; color: #4ade80; padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: 700; display: inline-block; margin-top: 15px;'>● HUGGING FACE AI ACTIVE</div>", unsafe_allow_html=True)
 
 render_api_badge()
 
@@ -473,7 +484,7 @@ with top_col3:
     st.write("")
     if st.button("Sign Out", use_container_width=True):
         save_user_state()
-        for key in ['logged_in_user', 'data_loaded', 'generated_routine_text', 'active_checklist', 'specific_targets', 'recommended_exercises', 'hf_quota_exhausted']:
+        for key in ['logged_in_user', 'data_loaded', 'generated_routine_text', 'active_checklist', 'specific_targets', 'recommended_exercises', 'hf_quota_exhausted', 'streak_dates']:
             st.session_state.pop(key, None)
         st.rerun()
 
@@ -489,12 +500,11 @@ with tab1:
     st.subheader("Performance Logs")
     st.markdown("Log your performance in plain text. Metrics sync instantly to your history and library.")
     
-    hidden_metrics = ["__STREAK_FLAG_DAILY__", "__STREAK_FLAG_QUICK__"]
-    
-    mask = ~st.session_state.progress_df["Exercise/Metric"].isin(hidden_metrics)
-    display_df = st.session_state.progress_df[mask].copy()
-    hidden_df = st.session_state.progress_df[~mask].copy()
-    
+    # Ensure Notes are stripped out if they still accidentally exist in the session state
+    display_df = st.session_state.progress_df.copy()
+    if "Notes" in display_df.columns:
+        display_df = display_df.drop(columns=["Notes"])
+        
     edited_df = st.data_editor(
         display_df,
         num_rows="dynamic",
@@ -502,7 +512,7 @@ with tab1:
         key="progress_editor"
     )
     
-    st.session_state.progress_df = pd.concat([edited_df, hidden_df], ignore_index=True)
+    st.session_state.progress_df = edited_df
     save_user_state()
     
     with st.form("progress_extraction_form"):
@@ -551,7 +561,7 @@ with tab1:
                     extracted_data = parse_log_locally(user_log_input)
                     st.toast("Parsed via local offline engine.", icon="⚡")
                 else:
-                    st.toast("Parsed via AI.", icon="🧠")
+                    st.toast("Parsed via Hugging Face AI.", icon="🧠")
 
                 updated_count = 0
                 added_count = 0
@@ -632,18 +642,25 @@ with tab2:
     st.subheader("Routine Generator")
     st.markdown("Define your focus for today. Powered by dynamic inference with automated offline fallback.")
     
-    # Removed st.form to allow dynamic UI changes on dropdown selection!
     col_a, col_b = st.columns(2)
     with col_a:
-        # Dynamically extract and sort unique muscle groups
-        existing_muscles = sorted(list(set([
-            str(m).strip() for m in st.session_state.arsenal_df['Muscle Group/Day'].dropna() 
-            if str(m).strip() and str(m).strip() != "Add Manually"
-        ])))
+        # Dynamically extract, split by commas/slashes, and sort unique muscle groups
+        raw_muscles = st.session_state.arsenal_df['Muscle Group/Day'].dropna().astype(str).tolist()
+        muscle_set = set()
         
-        focus_options = existing_muscles + ["+ Add Custom Focus..."]
-        selected_focus = st.selectbox("Target Focus", focus_options)
+        for m_str in raw_muscles:
+            # Splits strings like "Chest, Shoulders" or "Quads / Glutes" into separate items
+            for part in re.split(r'[,/]', m_str):
+                clean_part = part.strip()
+                if clean_part and clean_part.lower() != "add manually":
+                    # Title case ensures 'chest' and 'Chest' combine into one option
+                    muscle_set.add(clean_part.title())
+                    
+        existing_muscles = sorted(list(muscle_set))
         
+        selected_focus = st.selectbox("Select Target Focus (From Library)", ["-- Type Custom Below --"] + existing_muscles)
+        custom_focus = st.text_input("Or Type New Focus", placeholder="Write new muscle group and press enter...")
+
         if selected_focus == "+ Add Custom Focus...":
             target_group = st.text_input("↳ Enter Custom Muscle Group", placeholder="e.g., Forearms, Neck...")
         else:
@@ -739,9 +756,9 @@ with tab2:
                     "arsenal_exercises": arsenal_exs,
                     "recommended_exercises": recs[:5]
                 }
-                st.toast("Routine built via local offline engine.")
+                st.toast("Routine built via local offline engine.", icon="⚡")
             else:
-                st.toast("Routine built via AI.")
+                st.toast("Routine built via Hugging Face AI.", icon="🧠")
 
             st.session_state.generated_routine_text = generated_data.get("routine_text", "Workout routine generated.")
             st.session_state.active_checklist = {}
@@ -811,18 +828,10 @@ with tab3:
             if all_completed and len(st.session_state.active_checklist) > 0:
                 st.success("All exercises checked off.")
                 if st.button("Mark Workout as Done"):
-                    new_rows = []
+                    # ONLY logs to the dedicated streak database. DOES NOT add to Progress logs!
                     today_str = datetime.now().strftime("%Y-%m-%d")
-                    for task, is_checked in st.session_state.active_checklist.items():
-                        if is_checked:
-                            new_rows.append({"Date": today_str, "Exercise/Metric": task, "Weight": "-", "Reps": "Done", "Notes": "Generated Routine"})
-                    
-                    # HIDDEN STREAK FLAG INJECTED HERE
-                    new_rows.append({"Date": today_str, "Exercise/Metric": "__STREAK_FLAG_DAILY__", "Weight": "-", "Reps": "-", "Notes": "Hidden Streak Flag"})
-
-                    if new_rows:
-                        new_df = pd.DataFrame(new_rows)
-                        st.session_state.progress_df = pd.concat([st.session_state.progress_df, new_df], ignore_index=True)
+                    if today_str not in st.session_state.streak_dates:
+                        st.session_state.streak_dates.append(today_str)
                         
                     st.session_state.active_checklist = {}
                     st.session_state.generated_routine_text = ""
@@ -850,10 +859,13 @@ with tab3:
 with tab4:
     st.markdown("<div style='display: flex; justify-content: flex-end; margin-bottom: 20px;'>", unsafe_allow_html=True)
     if st.button("Quick Log: Mark Today as Complete"):
-        new_prog_row = pd.DataFrame([{"Date": datetime.now().strftime("%Y-%m-%d"), "Exercise/Metric": "__STREAK_FLAG_QUICK__", "Weight": "-", "Reps": "-", "Notes": "Quick Log"}])
-        st.session_state.progress_df = pd.concat([st.session_state.progress_df, new_prog_row], ignore_index=True)
-        save_user_state()
-        st.success("Today logged successfully.")
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        
+        if today_str not in st.session_state.streak_dates:
+            st.session_state.streak_dates.append(today_str)
+            save_user_state()
+            
+        st.success("Today marked as complete! Streak secured.")
         st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -862,15 +874,8 @@ with tab4:
     with col_streak:
         st.subheader("Consistency Heatmap")
         
-        # STRICT STREAK CALCULATION
-        if not st.session_state.progress_df.empty:
-            hidden_metrics = ["__STREAK_FLAG_DAILY__", "__STREAK_FLAG_QUICK__"]
-            streak_df = st.session_state.progress_df[st.session_state.progress_df["Exercise/Metric"].isin(hidden_metrics)]
-            valid_dates = pd.to_datetime(streak_df["Date"], errors='coerce').dropna()
-            workout_dates = sorted(valid_dates.dt.date.unique(), reverse=True)
-        else:
-            workout_dates = []
-
+        # PULL FROM NEW DEDICATED STREAK DB
+        workout_dates = sorted([datetime.strptime(d, "%Y-%m-%d").date() for d in st.session_state.streak_dates], reverse=True)
         today_date = datetime.now().date()
         yesterday_date = today_date - timedelta(days=1)
         
