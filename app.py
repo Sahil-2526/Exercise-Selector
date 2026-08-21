@@ -197,60 +197,60 @@ except (FileNotFoundError, KeyError):
 
 client = InferenceClient(token=hf_token) if hf_token else None
 
-# --- MASTER EXERCISE BANK ---
+# --- MASTER EXERCISE BANK (Updated to Yes/No) ---
 MASTER_EXERCISE_BANK = {
     "chest": [
-        {"name": "Incline Dumbbell Press", "muscle": "Upper Chest", "equipment": "Dumbbells"},
-        {"name": "Chest Fly", "muscle": "Pectorals", "equipment": "None (Bodyweight)"},
-        {"name": "Cable Fly", "muscle": "Lower Chest", "equipment": "Cables"},
-        {"name": "Dumbbell Chest Press", "muscle": "Mid Chest", "equipment": "Dumbbells"},
-        {"name": "Decline Pushup", "muscle": "Upper Chest", "equipment": "None (Bodyweight)"},
-        {"name": "Dips", "muscle": "Lower Chest", "equipment": "None (Bodyweight)"}
+        {"name": "Incline Dumbbell Press", "muscle": "Upper Chest", "equipment": "Yes"},
+        {"name": "Chest Fly", "muscle": "Pectorals", "equipment": "No"},
+        {"name": "Cable Fly", "muscle": "Lower Chest", "equipment": "Yes"},
+        {"name": "Dumbbell Chest Press", "muscle": "Mid Chest", "equipment": "Yes"},
+        {"name": "Decline Pushup", "muscle": "Upper Chest", "equipment": "No"},
+        {"name": "Dips", "muscle": "Lower Chest", "equipment": "No"}
     ],
     "back": [
-        {"name": "Lat Pulldown", "muscle": "Lats", "equipment": "Cables"},
-        {"name": "Seated Row", "muscle": "Mid Back", "equipment": "Cables"},
-        {"name": "Bent-Over Barbell Row", "muscle": "Rhomboids", "equipment": "Barbell"},
-        {"name": "Face Pull", "muscle": "Rear Delts", "equipment": "Cables"},
-        {"name": "T-Bar Row", "muscle": "Upper Back", "equipment": "Barbell"},
-        {"name": "Straight-Arm Pulldown", "muscle": "Lats", "equipment": "Cables"}
+        {"name": "Lat Pulldown", "muscle": "Lats", "equipment": "Yes"},
+        {"name": "Seated Row", "muscle": "Mid Back", "equipment": "Yes"},
+        {"name": "Bent-Over Barbell Row", "muscle": "Rhomboids", "equipment": "Yes"},
+        {"name": "Face Pull", "muscle": "Rear Delts", "equipment": "Yes"},
+        {"name": "T-Bar Row", "muscle": "Upper Back", "equipment": "Yes"},
+        {"name": "Straight-Arm Pulldown", "muscle": "Lats", "equipment": "Yes"}
     ],
     "legs": [
-        {"name": "Bulgarian Split Squat", "muscle": "Quads / Glutes", "equipment": "Dumbbells"},
-        {"name": "Romanian Deadlift", "muscle": "Hamstrings", "equipment": "Barbell"},
-        {"name": "Leg Press", "muscle": "Quads", "equipment": "Machine"},
-        {"name": "Standing Calf Raise", "muscle": "Calves", "equipment": "None (Bodyweight)"},
-        {"name": "Goblet Squat", "muscle": "Quads", "equipment": "Dumbbells"},
-        {"name": "Walking Lunges", "muscle": "Glutes / Quads", "equipment": "Dumbbells"}
+        {"name": "Bulgarian Split Squat", "muscle": "Quads / Glutes", "equipment": "Yes"},
+        {"name": "Romanian Deadlift", "muscle": "Hamstrings", "equipment": "Yes"},
+        {"name": "Leg Press", "muscle": "Quads", "equipment": "Yes"},
+        {"name": "Standing Calf Raise", "muscle": "Calves", "equipment": "No"},
+        {"name": "Goblet Squat", "muscle": "Quads", "equipment": "Yes"},
+        {"name": "Walking Lunges", "muscle": "Glutes / Quads", "equipment": "Yes"}
     ],
     "shoulders": [
-        {"name": "Dumbbell Lateral Raise", "muscle": "Side Delts", "equipment": "Dumbbells"},
-        {"name": "Arnold Press", "muscle": "Front Delts", "equipment": "Dumbbells"},
-        {"name": "Overhead Barbell Press", "muscle": "Front Delts", "equipment": "Barbell"},
-        {"name": "Upright Row", "muscle": "Side Delts", "equipment": "Barbell"},
-        {"name": "Rear Delt Fly", "muscle": "Rear Delts", "equipment": "Dumbbells"},
-        {"name": "Cable Front Raise", "muscle": "Front Delts", "equipment": "Cables"}
+        {"name": "Dumbbell Lateral Raise", "muscle": "Side Delts", "equipment": "Yes"},
+        {"name": "Arnold Press", "muscle": "Front Delts", "equipment": "Yes"},
+        {"name": "Overhead Barbell Press", "muscle": "Front Delts", "equipment": "Yes"},
+        {"name": "Upright Row", "muscle": "Side Delts", "equipment": "Yes"},
+        {"name": "Rear Delt Fly", "muscle": "Rear Delts", "equipment": "Yes"},
+        {"name": "Cable Front Raise", "muscle": "Front Delts", "equipment": "Yes"}
     ],
     "arms": [
-        {"name": "Hammer Curl", "muscle": "Biceps / Brachialis", "equipment": "Dumbbells"},
-        {"name": "Tricep Overhead Extension", "muscle": "Triceps", "equipment": "Dumbbells"},
-        {"name": "Preacher Curl", "muscle": "Biceps", "equipment": "Barbell"},
-        {"name": "Skull Crushers", "muscle": "Triceps", "equipment": "Barbell"},
-        {"name": "Concentration Curl", "muscle": "Biceps", "equipment": "Dumbbells"},
-        {"name": "Tricep Dips", "muscle": "Triceps", "equipment": "None (Bodyweight)"}
+        {"name": "Hammer Curl", "muscle": "Biceps / Brachialis", "equipment": "Yes"},
+        {"name": "Tricep Overhead Extension", "muscle": "Triceps", "equipment": "Yes"},
+        {"name": "Preacher Curl", "muscle": "Biceps", "equipment": "Yes"},
+        {"name": "Skull Crushers", "muscle": "Triceps", "equipment": "Yes"},
+        {"name": "Concentration Curl", "muscle": "Biceps", "equipment": "Yes"},
+        {"name": "Tricep Dips", "muscle": "Triceps", "equipment": "No"}
     ],
     "core": [
-        {"name": "Plank", "muscle": "Transverse Abdominis", "equipment": "None (Bodyweight)"},
-        {"name": "Russian Twist", "muscle": "Obliques", "equipment": "None (Bodyweight)"},
-        {"name": "Ab Wheel Rollout", "muscle": "Abs", "equipment": "Machine"},
-        {"name": "Bicycle Crunches", "muscle": "Obliques", "equipment": "None (Bodyweight)"},
-        {"name": "Toes to Bar", "muscle": "Lower Abs", "equipment": "None (Bodyweight)"}
+        {"name": "Plank", "muscle": "Transverse Abdominis", "equipment": "No"},
+        {"name": "Russian Twist", "muscle": "Obliques", "equipment": "No"},
+        {"name": "Ab Wheel Rollout", "muscle": "Abs", "equipment": "Yes"},
+        {"name": "Bicycle Crunches", "muscle": "Obliques", "equipment": "No"},
+        {"name": "Toes to Bar", "muscle": "Lower Abs", "equipment": "No"}
     ],
     "calisthenics": [
-        {"name": "Push to Handstand Progression", "muscle": "Shoulders / Core", "equipment": "None (Bodyweight)"},
-        {"name": "Pike Pushups", "muscle": "Front Delts", "equipment": "None (Bodyweight)"},
-        {"name": "Frog Stand", "muscle": "Balance / Shoulders", "equipment": "None (Bodyweight)"},
-        {"name": "L-Sit Hold", "muscle": "Core / Triceps", "equipment": "None (Bodyweight)"}
+        {"name": "Push to Handstand Progression", "muscle": "Shoulders / Core", "equipment": "No"},
+        {"name": "Pike Pushups", "muscle": "Front Delts", "equipment": "No"},
+        {"name": "Frog Stand", "muscle": "Balance / Shoulders", "equipment": "No"},
+        {"name": "L-Sit Hold", "muscle": "Core / Triceps", "equipment": "No"}
     ]
 }
 
@@ -293,14 +293,6 @@ def parse_log_locally(user_input):
         "Chest": ["pushup", "push-up", "bench", "chest", "fly", "pec", "cable crossover"]
     }
     
-    equip_map = {
-        "Dumbbells": ["dumbbell", "db", "dumbell"],
-        "Barbell": ["barbell", "bb", "plate"],
-        "Cables": ["cable", "pulley", "rope"],
-        "Machine": ["machine", "smith", "hack", "press machine"],
-        "Bands": ["band", "resistance"],
-    }
-
     for clause in clauses:
         weight_match = re.search(r'(\d+(?:\.\d+)?)\s*(kg|lbs|kilos)', clause)
         ex_weight = f"{weight_match.group(1)}{weight_match.group(2)}" if weight_match else "-"
@@ -324,29 +316,15 @@ def parse_log_locally(user_input):
             
         name_lower = ex_name.lower()
         
-        # Default to 'Add Manually'
         inferred_muscle = "Add Manually"
-        inferred_equip = "None (Bodyweight)"
         
         for group, keywords in muscle_map.items():
             if any(re.search(rf'\b{kw}\b', name_lower) for kw in keywords):
                 inferred_muscle = group
                 break
                 
-        found_equip = False
-        for equip, keywords in equip_map.items():
-            if any(re.search(rf'\b{kw}\b', name_lower) for kw in keywords):
-                inferred_equip = equip
-                found_equip = True
-                break
-                
-        if not found_equip:
-            if "bench press" in name_lower or "deadlift" in name_lower:
-                inferred_equip = "Barbell"
-            elif "fly" in name_lower or "curl" in name_lower or "lateral raise" in name_lower:
-                inferred_equip = "Dumbbells"
-            elif "pulldown" in name_lower or "pushdown" in name_lower or "face pull" in name_lower:
-                inferred_equip = "Cables"
+        # Smart Equipment Detection based on extracted weight
+        inferred_equip = "Yes" if ex_weight != "-" else "No"
 
         parsed_results.append({
             "name": ex_name,
@@ -366,7 +344,7 @@ default_states = {
     'specific_targets': {},
     'recommended_exercises': [],
     'current_target_group': "Full Body",
-    'hf_quota_exhausted': False  # Dynamic state tracking API availability
+    'hf_quota_exhausted': False  
 }
 
 for key, val in default_states.items():
@@ -479,7 +457,6 @@ top_col1, top_col2, top_col3 = st.columns([4, 3, 1])
 with top_col1:
     st.title(f"Keep Working Out — [{current_user.upper()}]")
 
-# Use a placeholder so we can instantly update the badge state if a quota exception is caught below
 badge_placeholder = top_col2.empty()
 
 def render_api_badge():
@@ -490,7 +467,6 @@ def render_api_badge():
     else:
         badge_placeholder.markdown("<div style='background-color: rgba(74, 222, 128, 0.1); border: 1px solid #4ade80; color: #4ade80; padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: 700; display: inline-block; margin-top: 15px;'>● AI ACTIVE</div>", unsafe_allow_html=True)
 
-# Render the initial state of the badge
 render_api_badge()
 
 with top_col3:
@@ -513,7 +489,7 @@ with tab1:
     st.subheader("Performance Logs")
     st.markdown("Log your performance in plain text. Metrics sync instantly to your history and library.")
     
-    hidden_metrics = ["Daily Workout Completed", "General Training Session"]
+    hidden_metrics = ["__STREAK_FLAG_DAILY__", "__STREAK_FLAG_QUICK__"]
     
     mask = ~st.session_state.progress_df["Exercise/Metric"].isin(hidden_metrics)
     display_df = st.session_state.progress_df[mask].copy()
@@ -549,6 +525,7 @@ with tab1:
                                     "Match the precise repetition count to each specific exercise clause. If missing, output '-'. "
                                     "OUTPUT FORMAT: You must respond ONLY with a valid JSON array containing objects. "
                                     "Each object must use these exact keys: 'name', 'weight', 'reps', 'muscle', 'equipment'. "
+                                    "For 'equipment', strictly output 'Yes' if a weight is mentioned or required, otherwise output 'No'. "
                                     "Do not include any markdown formatting, backticks, or extra text."
                                 )
                             },
@@ -568,13 +545,13 @@ with tab1:
                     except Exception:
                         extracted_data = None 
                         st.session_state.hf_quota_exhausted = True
-                        render_api_badge() # Dynamically updates badge to RED
+                        render_api_badge() 
                 
                 if not extracted_data:
                     extracted_data = parse_log_locally(user_log_input)
                     st.toast("Parsed via local offline engine.", icon="⚡")
                 else:
-                    st.toast("Parsed via Hugging Face AI.", icon="🧠")
+                    st.toast("Parsed via AI.", icon="🧠")
 
                 updated_count = 0
                 added_count = 0
@@ -589,12 +566,13 @@ with tab1:
                     ex_weight = str(item.get("weight", "-")).strip()
                     ex_reps = str(item.get("reps", "-")).strip()
                     ex_muscle = str(item.get("muscle", "Add Manually"))
-                    ex_equip = str(item.get("equipment", "None (Bodyweight)"))
+                    
+                    ex_equip = "Yes" if ex_weight != "-" and ex_weight != "" else "No"
                     
                     if not ex_name or ex_name.lower() == "none":
                         continue
                     
-                    close_matches_prog = difflib.get_close_matches(ex_name.lower(), [e.lower() for e in existing_progress], n=1, cutoff=0.7)
+                    close_matches_prog = difflib.get_close_matches(ex_name.lower(), [e.lower() for e in existing_progress], n=1, cutoff=0.85)
                     if close_matches_prog:
                         matched_ex = close_matches_prog[0]
                         match_idx = st.session_state.progress_df[st.session_state.progress_df['Exercise/Metric'].astype(str).str.lower() == matched_ex.lower()].index
@@ -608,7 +586,7 @@ with tab1:
                         st.session_state.progress_df = pd.concat([st.session_state.progress_df, new_prog_row], ignore_index=True)
                         added_count += 1
 
-                    close_matches_ars = difflib.get_close_matches(ex_name.lower(), [e.lower() for e in existing_arsenal], n=1, cutoff=0.7)
+                    close_matches_ars = difflib.get_close_matches(ex_name.lower(), [e.lower() for e in existing_arsenal], n=1, cutoff=0.85)
                     if not close_matches_ars:
                         new_ars_row = pd.DataFrame([{"Exercise Name": ex_name, "Muscle Group/Day": ex_muscle, "Equipment Needed": ex_equip}])
                         st.session_state.arsenal_df = pd.concat([st.session_state.arsenal_df, new_ars_row], ignore_index=True)
@@ -637,7 +615,7 @@ with tab1:
                 ex_name = st.text_input("Exercise Name")
                 ex_muscle = st.text_input("Target Muscle", placeholder="e.g., Upper Chest, Rear Delts")
             with col2:
-                ex_equip = st.selectbox("Equipment", ["None (Bodyweight)", "Dumbbells", "Barbell", "Cables", "Court/Track"])
+                ex_equip = st.selectbox("Equipment Needed", ["No", "Yes"])
             
             submit_btn = st.form_submit_button("Add Exercise")
             if submit_btn and ex_name:
@@ -654,14 +632,28 @@ with tab2:
     st.subheader("Routine Generator")
     st.markdown("Define your focus for today. Powered by dynamic inference with automated offline fallback.")
     
-    with st.form("hf_generator_form"):
-        col_a, col_b = st.columns(2)
-        with col_a:
-            target_group = st.text_input("Target Focus", placeholder="e.g., Chest, Biceps, Lats, Quads")
-        with col_b:
-            has_gym = st.radio("Gym Access Today?", ["Yes", "No (Bodyweight only)"])
+    # Removed st.form to allow dynamic UI changes on dropdown selection!
+    col_a, col_b = st.columns(2)
+    with col_a:
+        # Dynamically extract and sort unique muscle groups
+        existing_muscles = sorted(list(set([
+            str(m).strip() for m in st.session_state.arsenal_df['Muscle Group/Day'].dropna() 
+            if str(m).strip() and str(m).strip() != "Add Manually"
+        ])))
+        
+        focus_options = existing_muscles + ["+ Add Custom Focus..."]
+        selected_focus = st.selectbox("Target Focus", focus_options)
+        
+        if selected_focus == "+ Add Custom Focus...":
+            target_group = st.text_input("↳ Enter Custom Muscle Group", placeholder="e.g., Forearms, Neck...")
+        else:
+            target_group = selected_focus
             
-        generate_btn = st.form_submit_button("Generate Routine")
+    with col_b:
+        has_gym = st.radio("Gym Access Today?", ["Yes", "No (Bodyweight only)"])
+        
+    st.write("") # Extra padding
+    generate_btn = st.button("Generate Routine", use_container_width=True)
 
     if generate_btn:
         if not target_group:
@@ -675,8 +667,11 @@ with tab2:
                     valid_arsenal = st.session_state.arsenal_df[
                         st.session_state.arsenal_df["Muscle Group/Day"].astype(str).str.contains(target_group, case=False, na=False)
                     ]
+                    
+                    if "No" in has_gym:
+                        valid_arsenal = valid_arsenal[valid_arsenal["Equipment Needed"].astype(str).str.strip().str.upper() == "NO"]
+                        
                     arsenal_csv = valid_arsenal.to_csv(index=False) if not valid_arsenal.empty else "No matching exercises."
-                    progress_csv = st.session_state.progress_df.to_csv(index=False) if not st.session_state.progress_df.empty else "No progress logged yet."
                     
                     messages = [
                         {
@@ -686,9 +681,9 @@ with tab2:
                                 "{"
                                 "\"routine_text\": \"String detailing motivation and recommendations.\", "
                                 "\"arsenal_exercises\": [{\"name\": \"Exercise from CSV\", \"specific_target\": \"Muscle part\"}], "
-                                "\"recommended_exercises\": [{\"name\": \"New Exercise\", \"muscle\": \"Muscle\", \"equipment\": \"Equipment\"}]"
+                                "\"recommended_exercises\": [{\"name\": \"New Exercise\", \"muscle\": \"Muscle\", \"equipment\": \"Yes or No\"}]"
                                 "}"
-                                "Provide exactly 5 recommended exercises not in CSV."
+                                "Provide exactly 5 recommended exercises not in CSV. Ensure 'equipment' strictly returns 'Yes' or 'No'."
                             )
                         },
                         {
@@ -708,13 +703,17 @@ with tab2:
                     except Exception:
                         generated_data = None
                         st.session_state.hf_quota_exhausted = True
-                        render_api_badge() # Dynamically updates badge to RED
+                        render_api_badge() 
 
             if not generated_data:
                 target_key = target_group.lower().strip()
                 arsenal = st.session_state.arsenal_df
+                
                 matched_rows = arsenal[arsenal["Muscle Group/Day"].astype(str).str.lower().str.contains(target_key, na=False) | 
                                        arsenal["Exercise Name"].astype(str).str.lower().str.contains(target_key, na=False)]
+                
+                if "No" in has_gym:
+                    matched_rows = matched_rows[matched_rows["Equipment Needed"].astype(str).str.strip().str.upper() == "NO"]
                 
                 arsenal_exs = []
                 for _, row in matched_rows.head(4).iterrows():
@@ -730,6 +729,8 @@ with tab2:
                 
                 recs = []
                 for item in bank_list:
+                    if "No" in has_gym and str(item.get("equipment", "")).strip().lower() != "no":
+                        continue
                     if item["name"].lower() not in existing_names:
                         recs.append(item)
 
@@ -738,9 +739,9 @@ with tab2:
                     "arsenal_exercises": arsenal_exs,
                     "recommended_exercises": recs[:5]
                 }
-                st.toast("Routine built via local offline engine.", icon="⚡")
+                st.toast("Routine built via local offline engine.")
             else:
-                st.toast("Routine built via Hugging Face AI.", icon="🧠")
+                st.toast("Routine built via AI.")
 
             st.session_state.generated_routine_text = generated_data.get("routine_text", "Workout routine generated.")
             st.session_state.active_checklist = {}
@@ -789,7 +790,7 @@ with tab3:
                 for idx, rec in enumerate(recs_to_show):
                     rec_name = rec.get("name", "Unknown Exercise")
                     rec_muscle = rec.get("muscle", st.session_state.current_target_group)
-                    rec_equip = rec.get("equipment", "None (Bodyweight)")
+                    rec_equip = str(rec.get("equipment", "No")).strip().title()
                     
                     rec_col1, rec_col2 = st.columns([4, 1])
                     rec_col1.markdown(f"**{rec_name}**")
@@ -816,6 +817,9 @@ with tab3:
                         if is_checked:
                             new_rows.append({"Date": today_str, "Exercise/Metric": task, "Weight": "-", "Reps": "Done", "Notes": "Generated Routine"})
                     
+                    # HIDDEN STREAK FLAG INJECTED HERE
+                    new_rows.append({"Date": today_str, "Exercise/Metric": "__STREAK_FLAG_DAILY__", "Weight": "-", "Reps": "-", "Notes": "Hidden Streak Flag"})
+
                     if new_rows:
                         new_df = pd.DataFrame(new_rows)
                         st.session_state.progress_df = pd.concat([st.session_state.progress_df, new_df], ignore_index=True)
@@ -825,7 +829,7 @@ with tab3:
                     st.session_state.specific_targets = {}
                     st.session_state.recommended_exercises = []
                     save_user_state()
-                    st.success("Session saved! Exercises added to your logs.")
+                    st.success("Session completed! Streak secured.")
                     st.rerun()
 
         with col_routine:
@@ -846,7 +850,7 @@ with tab3:
 with tab4:
     st.markdown("<div style='display: flex; justify-content: flex-end; margin-bottom: 20px;'>", unsafe_allow_html=True)
     if st.button("Quick Log: Mark Today as Complete"):
-        new_prog_row = pd.DataFrame([{"Date": datetime.now().strftime("%Y-%m-%d"), "Exercise/Metric": "General Training Session", "Weight": "-", "Reps": "-", "Notes": "Quick Log"}])
+        new_prog_row = pd.DataFrame([{"Date": datetime.now().strftime("%Y-%m-%d"), "Exercise/Metric": "__STREAK_FLAG_QUICK__", "Weight": "-", "Reps": "-", "Notes": "Quick Log"}])
         st.session_state.progress_df = pd.concat([st.session_state.progress_df, new_prog_row], ignore_index=True)
         save_user_state()
         st.success("Today logged successfully.")
@@ -857,8 +861,12 @@ with tab4:
     
     with col_streak:
         st.subheader("Consistency Heatmap")
+        
+        # STRICT STREAK CALCULATION
         if not st.session_state.progress_df.empty:
-            valid_dates = pd.to_datetime(st.session_state.progress_df["Date"], errors='coerce').dropna()
+            hidden_metrics = ["__STREAK_FLAG_DAILY__", "__STREAK_FLAG_QUICK__"]
+            streak_df = st.session_state.progress_df[st.session_state.progress_df["Exercise/Metric"].isin(hidden_metrics)]
+            valid_dates = pd.to_datetime(streak_df["Date"], errors='coerce').dropna()
             workout_dates = sorted(valid_dates.dt.date.unique(), reverse=True)
         else:
             workout_dates = []
@@ -869,7 +877,6 @@ with tab4:
         current_streak = 0
         is_today_done = today_date in workout_dates
         
-        # STRICT STREAK CALCULATION
         check_date = today_date if is_today_done else yesterday_date
         
         for d in workout_dates:
